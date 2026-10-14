@@ -1,0 +1,59 @@
+version: '3.8' # Docker Compose 文件格式版本
+
+services:  # 定义要运行的容器服务
+  travel-assistant:  # 服务名称（旅行助手应用）
+    build: .  # 从目录的 Dockerfile 构建镜像
+    container_name: travel-assistant # 容器名称
+    ports:    # 端口映射
+      - "3001:3001" # 主机端口：容器端口，外部通过主机3001端口访问容器
+    env_file:  # 从环境加载变量
+      - .env  # 读取 .env 文件中的配置
+    environment: # 直接设置环境变量
+      - NODE_ENV=production
+      - PORT=3001
+      - DEBUG=false
+      - REDIS_URL=redis://redis:6379
+      - MILVUS_ADDRESS=milvus:19530
+    depends_on: # 依赖关系
+      - redis # 先启动 redis 容器，再启动 travel-assistant
+      - milvus # 先启动 milvus 容器，再启动 travel-assistant
+    restart: unless-stopped # 重启策略：除非手动停止，否则总是重启
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  redis: # Redis 服务
+    image: redis:7-alpine # 使用 Redis 7 的 Alpine 轻量版镜像
+    container_name: travel-assistant-redis # 容器名称
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  milvus: # Milvus 向量数据库服务
+    image: milvusdb/milvus:v2.2.15 # 使用 Milvus 2.2.15 版本
+    container_name: travel-assistant-milvus # 容器名称
+    ports:
+      - "19531:19530"
+      - "9092:9091"
+    volumes:
+      - milvus_data:/var/lib/milvus
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  redis_data: # 定义 Docker 管理的卷，用于保存 Redis 数据
+  milvus_data: # 定义 Docker 管理的卷，用于保存 Milvus 数据

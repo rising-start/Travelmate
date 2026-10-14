@@ -1,0 +1,2373 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🧳 旅行助手</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            /* 亮色主题 */
+            --primary-color: #10A37F;
+            --primary-dark: #0B8766;
+            --secondary-color: #5436DA;
+            --secondary-dark: #4328C7;
+            --background-color: #F7F7F8;
+            --card-color: #FFFFFF;
+            --border-color: #E5E5E5;
+            --text-color: #1F1F1F;
+            --text-secondary: #666666;
+            --user-message-bg: #E3F2FD;
+            --assistant-message-bg: #F0F0F0;
+            --header-bg: linear-gradient(135deg, #10A37F 0%, #0B8766 100%);
+            --input-bg: #F7F7F8;
+        }
+
+        /* 暗色主题 */
+        body.dark-mode {
+            --primary-color: #15C99A;
+            --primary-dark: #10A37F;
+            --secondary-color: #6E4CFF;
+            --secondary-dark: #5436DA;
+            --background-color: #1A1A1A;
+            --card-color: #2D2D2D;
+            --border-color: #404040;
+            --text-color: #E0E0E0;
+            --text-secondary: #B0B0B0;
+            --user-message-bg: #2D2D2D;
+            --assistant-message-bg: #2D2D2D;
+            --header-bg: linear-gradient(135deg, #15C99A 0%, #10A37F 100%);
+            --input-bg: #2D2D2D;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            margin: 0;
+            padding: 0;
+            display: flex;
+        }
+
+        .sidebar {
+            width: 300px;
+            background: var(--card-color);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow-y: auto;
+            transition: width 0.3s ease;
+        }
+
+        .sidebar.collapsed {
+            width: 60px;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 15px;
+        }
+
+        .sidebar-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+        }
+
+        .sidebar-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-color);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        .collapse-button {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            padding: 2px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+        }
+
+        .collapse-button:hover {
+            background: var(--input-bg);
+            color: var(--text-color);
+            border-color: var(--primary-color);
+        }
+
+        .collapse-icon {
+            width: 12px;
+            height: 12px;
+            border: 1px solid var(--text-secondary);
+            display: block;
+        }
+
+        .collapse-button:hover .collapse-icon {
+            border-color: var(--text-color);
+        }
+
+        .new-chat-button {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 16px;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            justify-content: center;
+        }
+
+        .sidebar.collapsed .sidebar-title,
+        .sidebar.collapsed .new-chat-button span,
+        .sidebar.collapsed .session-group-title,
+        .sidebar.collapsed .session-name,
+        .sidebar.collapsed .session-preview,
+        .sidebar.collapsed .session-time,
+        .sidebar.collapsed .session-actions {
+            display: none;
+        }
+
+        .sidebar.collapsed .new-chat-button {
+            justify-content: center;
+            padding: 10px;
+        }
+
+        .sidebar.collapsed .new-chat-button::before {
+            content: '+';
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .sidebar.collapsed .session-item {
+            justify-content: center;
+            padding: 12px 0;
+        }
+
+        .sidebar.collapsed .session-info {
+            display: none;
+        }
+
+        .session-list {
+            flex: 1;
+            padding: 10px;
+        }
+
+        .session-group {
+            margin-bottom: 20px;
+        }
+
+        .session-group-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin: 10px 10px 5px 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .session-item {
+            padding: 12px 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-bottom: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .session-item:hover {
+            background: var(--input-bg);
+        }
+
+        .session-item.active {
+            background: rgba(16, 163, 127, 0.1);
+            border-left: 3px solid var(--primary-color);
+        }
+
+        .session-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .session-name {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-color);
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .session-preview {
+            font-size: 12px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .session-time {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-left: 10px;
+        }
+
+        .session-actions {
+            display: flex;
+            gap: 5px;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        .session-item:hover .session-actions {
+            opacity: 1;
+        }
+
+        .session-action-button {
+            background: transparent;
+            border: none;
+            border-radius: 4px;
+            padding: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .session-action-button:hover {
+            background: var(--input-bg);
+            color: var(--text-color);
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        body.dark-mode {
+            background: linear-gradient(135deg, #1A1A1A 0%, #2D2D2D 100%);
+        }
+
+        .chat-container {
+            width: 100%;
+            height: 100vh;
+            background: var(--card-color);
+            border-radius: 0;
+            box-shadow: none;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-header {
+            background: var(--header-bg);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-content {
+            flex: 1;
+        }
+
+        .chat-header h1 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .chat-header p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .theme-toggle {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            transition: all 0.2s ease;
+        }
+
+        .theme-toggle:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.05);
+        }
+
+        .chat-messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 12px 16px;
+            border-radius: 18px;
+            word-wrap: break-word;
+            line-height: 1.4;
+        }
+
+        .user-message {
+            align-self: flex-end;
+            background: var(--user-message-bg);
+            color: var(--text-color);
+            border-radius: 32px 20px 20px 32px;
+            padding: 12px 20px;
+            max-width: 80%;
+        }
+
+        .user-message .message-content {
+            margin: 0;
+            padding: 0;
+        }
+
+        .assistant-message {
+            align-self: flex-start;
+            background: transparent !important;
+            color: var(--text-color);
+            border-bottom-left-radius: 4px;
+            position: relative;
+        }
+
+        .assistant-message .message-content {
+            background: transparent;
+        }
+
+        .message-content {
+            font-size: 15px;
+            color: var(--text-color);
+        }
+
+        .message-content ul {
+            margin: 10px 0 0 20px;
+        }
+
+        .message-content li {
+            margin-bottom: 5px;
+        }
+
+        .chat-input-area {
+            padding: 20px;
+            border-top: 1px solid var(--border-color);
+            background: var(--input-bg);
+        }
+
+        .input-container {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .message-input {
+            flex: 1;
+            border: 2px solid var(--border-color);
+            border-radius: 28px;
+            padding: 12px 16px;
+            font-size: 15px;
+            resize: none;
+            min-height: 48px;
+            max-height: 120px;
+            outline: none;
+            transition: all 0.2s ease;
+            background: var(--input-bg);
+            color: var(--text-color);
+        }
+
+        .message-input:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(16, 163, 127, 0.1);
+        }
+
+        .send-button {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 48px;
+            height: 48px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            transition: all 0.2s ease;
+        }
+
+        .send-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(16, 163, 127, 0.3);
+        }
+
+        .send-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .quick-actions {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .quick-button {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            border-radius: 32px;
+            padding: 8px 12px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            color: var(--text-color);
+            text-align: center;
+        }
+
+        .quick-button:hover {
+            background: var(--input-bg);
+            border-color: var(--primary-color);
+        }
+
+        .typing-indicator {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 12px 16px;
+            background: var(--assistant-message-bg);
+            border-radius: 18px;
+            align-self: flex-start;
+        }
+
+        .typing-indicator span {
+            width: 8px;
+            height: 8px;
+            background: var(--primary-color);
+            border-radius: 50%;
+            animation: typing 1.4s infinite ease-in-out both;
+        }
+
+        .typing-indicator span:nth-child(1) {
+            animation-delay: -0.32s;
+        }
+
+        .typing-indicator span:nth-child(2) {
+            animation-delay: -0.16s;
+        }
+
+        @keyframes typing {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        .error-message {
+            background: #FFE5E5;
+            color: #D32F2F;
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-size: 14px;
+            align-self: center;
+            margin: 10px 0;
+        }
+
+        @media (max-width: 768px) {
+            .chat-container {
+                width: 95%;
+                height: 90vh;
+            }
+
+            .quick-button span {
+                display: none;
+            }
+
+            .quick-button {
+                padding: 8px;
+                min-width: 40px;
+                justify-content: center;
+            }
+        }
+
+        /* 路线卡片样式 */
+        .route-card {
+            background: var(--card-color);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            margin: 10px 0;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            transition: all 0.2s ease;
+        }
+
+        .route-card:hover {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .route-card.recommended {
+            border: 2px solid var(--primary-color);
+            box-shadow: 0 4px 12px rgba(16, 163, 127, 0.15);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .scheme-type {
+            font-weight: 600;
+            font-size: 16px;
+            color: var(--text-color);
+        }
+
+        .recommended-badge {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .card-metrics {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+
+        .metric {
+            padding: 6px 12px;
+            border-radius: 16px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .metric.time {
+            background: #FFF3E0;
+            color: #FF9800;
+        }
+
+        .metric.cost {
+            background: #E8F5E9;
+            color: #4CAF50;
+        }
+
+        .metric.distance {
+            background: #E3F2FD;
+            color: #2196F3;
+        }
+
+        .card-section {
+            margin: 10px 0;
+            padding: 10px;
+            background: var(--input-bg);
+            border-radius: 8px;
+        }
+
+        .card-section.recommendation {
+            background: #E8F5E9;
+            border-left: 4px solid var(--primary-color);
+        }
+
+        .toggle-steps {
+            background: var(--card-color);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 6px 12px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s ease;
+            width: 100%;
+            text-align: left;
+            color: var(--text-color);
+        }
+
+        .toggle-steps:hover {
+            background: var(--input-bg);
+            border-color: var(--primary-color);
+        }
+
+        .steps-content {
+            margin-top: 10px;
+        }
+
+        .steps-content ol {
+            margin-left: 20px;
+        }
+
+        .steps-content li {
+            margin-bottom: 6px;
+            line-height: 1.4;
+        }
+
+        /* 地铁换乘卡片样式 */
+        .metro-step-card,
+        .walk-step-card,
+        .bus-step-card,
+        .railway-step-card {
+            background: var(--card-color);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 12px;
+            margin: 8px 0;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+        }
+
+        .step-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+
+        .line-indicator {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+
+        .step-info {
+            flex: 1;
+        }
+
+        .station-info {
+            font-weight: 600;
+            font-size: 15px;
+            color: var(--text-color);
+            margin-bottom: 4px;
+        }
+
+        .step-details {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .transfer-indicator {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 8px 0;
+        }
+
+        .transfer-line {
+            width: 2px;
+            height: 20px;
+            background: var(--border-color);
+        }
+
+        .transfer-text {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        /* 步骤列表样式 */
+        .step-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .step-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 12px;
+            background: var(--card-color);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+        }
+
+        .step-number {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: var(--primary-color);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .step-text {
+            flex: 1;
+            line-height: 1.4;
+            color: var(--text-color);
+        }
+
+        .natural-advice {
+            background: linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 100%);
+            padding: 12px 16px;
+            border-radius: 12px;
+            margin-top: 12px;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        h4 {
+            margin-bottom: 12px;
+            color: var(--text-color);
+            font-size: 16px;
+        }
+
+        /* POI 卡片样式 */
+        .poi-card {
+            background: var(--card-color);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            margin: 10px 0;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            transition: all 0.2s ease;
+        }
+
+        .poi-card:hover {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .poi-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .poi-name {
+            font-weight: 600;
+            font-size: 16px;
+            color: var(--text-color);
+        }
+
+        .distance-badge {
+            background: #E8F5E9;
+            color: #4CAF50;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .poi-info {
+            margin: 8px 0;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        .info-label {
+            color: var(--text-secondary);
+            margin-right: 8px;
+        }
+
+        .info-value {
+            color: var(--text-color);
+        }
+
+        .poi-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .action-button {
+            background: var(--input-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 6px 12px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            color: var(--text-color);
+        }
+
+        .action-button:hover {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+
+        /* Toast 提示样式 */
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 12px 16px;
+            border-radius: 8px;
+            color: white;
+            font-size: 14px;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            animation: slideIn 0.3s ease-out;
+        }
+
+        .toast.success {
+            background: #4CAF50;
+        }
+
+        .toast.error {
+            background: #F44336;
+        }
+
+        .toast.warning {
+            background: #FF9800;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        /* 位置栏样式 */
+        .location-bar {
+            display: flex;
+            align-items: center;
+            padding: 0;
+            margin: 0;
+            border: none;
+        }
+
+        .location-button {
+            background: var(--card-color);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 8px 16px;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-color);
+            transition: all 0.2s ease;
+        }
+
+        .location-button:hover {
+            background: var(--input-bg);
+            border-color: var(--primary-color);
+        }
+
+        .location-icon {
+            font-size: 14px;
+            color: var(--primary-color);
+        }
+
+        .location-text {
+            font-size: 14px;
+            color: var(--text-color);
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-top">
+                <div class="sidebar-title">TravelMate</div>
+                <button class="collapse-button" onclick="toggleSidebar()">
+                    <span class="collapse-icon"></span>
+                </button>
+            </div>
+            <button class="new-chat-button" onclick="createNewSession()">
+                <span>➕ 开启新对话</span>
+            </button>
+        </div>
+        <div class="session-list" id="session-list">
+            <!-- 会话列表将通过JavaScript动态生成 -->
+        </div>
+    </div>
+    <div class="main-content">
+        <div class="chat-container">
+            <div class="chat-header">
+                <div class="header-content">
+                    <h1>🧳 旅行助手</h1>
+                    <p>智能旅行规划系统</p>
+                </div>
+                <button class="theme-toggle" onclick="toggleTheme()">
+                    🌙
+                </button>
+            </div>
+            
+            <div class="chat-messages" id="chat-messages">
+                <div class="assistant-message">
+                    <div class="message-content">
+                        你好！我是你的旅行助手，有什么可以帮你的吗？
+                    </div>
+                </div>
+            </div>
+            
+            <div class="chat-input-area">
+                <div class="input-container">
+                    <div class="location-bar">
+                        <div class="location-button">
+                            <span class="location-icon" onclick="getCurrentLocation()">📍</span>
+                            <span class="location-text" id="current-location-text" onclick="enableEditLocation()">点击定位</span>
+                        </div>
+                    </div>
+                    <textarea 
+                        class="message-input" 
+                        id="message-input"
+                        placeholder="输入消息..."
+                        rows="1"
+                    ></textarea>
+                    <button class="send-button" id="send-button">📤</button>
+                </div>
+                
+                <div class="quick-actions">
+                    <button class="quick-button" data-action="route">
+                        🚗 <span>路线规划</span>
+                    </button>
+                    <button class="quick-button" data-template="附近有什么好吃的？">
+                        🍔 <span>美食推荐</span>
+                    </button>
+                    <button class="quick-button" data-template="附近有什么酒店？">
+                        🏨 <span>酒店推荐</span>
+                    </button>
+                    <button class="quick-button" data-template="附近有什么好玩的？">
+                        ⛰️ <span>景点推荐</span>
+                    </button>
+                    <button class="quick-button" data-template="天气怎么样？">
+                        ☀️ <span>天气查询</span>
+                    </button>
+                    <button class="quick-button" data-template="去有什么建议？">
+                        💡 <span>出行建议</span>
+                    </button>
+                    <button class="quick-button" onclick="clearChat()">
+                    🔄 <span>重置对话</span>
+                </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let sessionId = 'web-session-' + Date.now();
+        let isTyping = false;
+        let waitingFor = null;       // 正在等待什么：'origin', 'destination', 'both'
+        let pendingOrigin = null;   // 临时保存已提供的起点
+        let pendingDestination = null; // 临时保存已提供的终点
+        const ROUTE_PLANNING_CMD = '__ROUTE_PLANNING__';
+        const SESSION_STORAGE_KEY = 'travel-assistant-sessions';
+        const MAX_SESSIONS = 10; // 最大会话数
+        const MAX_MESSAGES_PER_SESSION = 50; // 每个会话最大消息数
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            const input = document.getElementById('message-input');
+            const sendButton = document.getElementById('send-button');
+            const chatMessages = document.getElementById('chat-messages');
+
+            // 输入框自动调整高度
+            input.addEventListener('input', function() {
+                this.style.height = 'auto';
+                this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+            });
+
+            // 发送按钮点击事件
+            sendButton.addEventListener('click', sendMessage);
+
+            // Enter键发送，Shift+Enter换行
+            input.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
+
+            // 快捷按钮点击事件 - 处理 data-action
+            document.querySelectorAll('.quick-button[data-action]').forEach(button => {
+                button.addEventListener('click', function() {
+                    const action = this.getAttribute('data-action');
+                    if (action === 'route') {
+                        // 路线规划按钮：发送特殊指令
+                        handleRoutePlanningButton();
+                    }
+                });
+            });
+
+            // 快捷按钮点击事件 - 处理 data-template
+            document.querySelectorAll('.quick-button[data-template]').forEach(button => {
+                button.addEventListener('click', function() {
+                    const template = this.getAttribute('data-template');
+                    input.value = template;
+                    input.style.height = 'auto';
+                    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+                    // 聚焦到输入框，方便用户修改
+                    input.focus();
+                });
+            });
+
+            // 快捷按钮点击事件 - 处理 data-text（直接发送）
+            document.querySelectorAll('.quick-button[data-text]').forEach(button => {
+                button.addEventListener('click', function() {
+                    const text = this.getAttribute('data-text');
+                    input.value = text;
+                    input.style.height = 'auto';
+                    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+                    sendMessage();
+                });
+            });
+
+            // 自动滚动到底部
+            scrollToBottom();
+        });
+
+        // 处理路线规划按钮点击
+        function handleRoutePlanningButton() {
+            // 发送特殊指令
+            sendSpecialMessage(ROUTE_PLANNING_CMD);
+        }
+
+        // 发送特殊指令
+        async function sendSpecialMessage(message) {
+            // 添加用户消息
+            addMessage(message === ROUTE_PLANNING_CMD ? '🚗 我想规划路线' : message, 'user');
+
+            // 显示正在输入
+            showTypingIndicator();
+
+            try {
+                // 发送到后端
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        sessionId: sessionId
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('服务器错误');
+                }
+
+                const result = await response.json();
+
+                // 隐藏正在输入
+                hideTypingIndicator();
+
+                // 处理特殊响应
+                if (result.needs_user_input) {
+                    handleNeedsUserInput(result);
+                } else if (result.data && result.data.type === 'route') {
+                    addRouteMessage(result.data);
+                    return;
+                } else if (result.data && result.data.type === 'poi') {
+                    addPoiMessage(result.data);
+                    // 保存会话
+                    saveSession();
+                    return;
+                } else {
+                    addMessage(result.answer, 'assistant');
+                    // 保存会话
+                    saveSession();
+                }
+
+            } catch (error) {
+                console.error('发送消息失败:', error);
+
+                // 隐藏正在输入
+                hideTypingIndicator();
+
+                // 显示错误消息
+                addErrorMessage('发送消息失败，请稍后重试');
+            }
+        }
+
+        // 处理需要用户输入的情况
+        function handleNeedsUserInput(result) {
+            const { session_info } = result;
+
+            if (session_info) {
+                if (session_info.origin) {
+                    pendingOrigin = session_info.origin;
+                }
+                if (session_info.destination) {
+                    pendingDestination = session_info.destination;
+                }
+                waitingFor = session_info.waiting_for;
+            }
+
+            addMessage(result.answer, 'assistant');
+        }
+
+        // 发送消息
+        async function sendMessage() {
+            const input = document.getElementById('message-input');
+            let message = input.value.trim();
+
+            if (!message) return;
+
+            // 处理等待状态
+            if (waitingFor) {
+                message = handleWaitingState(message);
+            }
+
+            // 清空输入框
+            input.value = '';
+            input.style.height = 'auto';
+
+            // 添加用户消息
+            addMessage(message, 'user');
+
+            // 显示正在输入
+            showTypingIndicator();
+
+            try {
+                // 发送到后端
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        sessionId: sessionId
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('服务器错误');
+                }
+
+                const result = await response.json();
+
+                // 隐藏正在输入
+                hideTypingIndicator();
+
+                // 处理特殊响应
+                if (result.needs_user_input) {
+                    handleNeedsUserInput(result);
+                } else if (result.data && result.data.type === 'route') {
+                    // 清除等待状态
+                    clearWaitingState();
+                    addRouteMessage(result.data);
+                    return;
+                } else if (result.data && result.data.type === 'poi') {
+                    // 清除等待状态
+                    clearWaitingState();
+                    addPoiMessage(result.data);
+                    return;
+                } else {
+                    // 清除等待状态
+                    clearWaitingState();
+                    addMessage(result.answer, 'assistant');
+                    // 保存会话
+                    saveSession();
+                }
+
+            } catch (error) {
+                console.error('发送消息失败:', error);
+
+                // 隐藏正在输入
+                hideTypingIndicator();
+
+                // 显示错误消息
+                addErrorMessage('发送消息失败，请稍后重试');
+            }
+        }
+
+        // 处理等待状态
+        function handleWaitingState(message) {
+            if (waitingFor === 'origin') {
+                // 用户正在输入起点
+                pendingOrigin = message;
+                waitingFor = 'destination'; // 现在等待终点
+                return message; // 直接发送用户输入
+            } else if (waitingFor === 'destination') {
+                // 用户正在输入终点
+                pendingDestination = message;
+                waitingFor = null;
+                return `从${pendingOrigin}到${message}怎么走？`; // 这里有起点和终点了
+            } else if (waitingFor === 'both') {
+                // 尝试解析用户输入中是否包含起点和终点
+                const parsed = parseOriginAndDestination(message);
+                if (parsed.origin && parsed.destination) {
+                    pendingOrigin = parsed.origin;
+                    pendingDestination = parsed.destination;
+                    waitingFor = null;
+                    return message;
+                } else if (parsed.origin) {
+                    pendingOrigin = parsed.origin;
+                    waitingFor = 'destination';
+                    return message;
+                } else if (parsed.destination) {
+                    pendingDestination = parsed.destination;
+                    waitingFor = 'origin';
+                    return message;
+                } else if (message.trim()) {
+                    // 用户只输入了一个地点，作为起点
+                    pendingOrigin = message;
+                    waitingFor = 'destination';
+                    return message;
+                }
+            }
+            return message;
+        }
+
+        // 解析起点和终点
+        function parseOriginAndDestination(message) {
+            const result = { origin: null, destination: null };
+
+            // 匹配 "从 X 到 Y" 格式
+            const fromToPattern = /从(.+?)到(.+)/;
+            const match = message.match(fromToPattern);
+            if (match) {
+                result.origin = match[1].trim();
+                result.destination = match[2].trim();
+                return result;
+            }
+
+            // 匹配空格分隔的格式 "X Y"
+            const parts = message.trim().split(/\s+/);
+            if (parts.length >= 2) {
+                // 简单处理：第一个词作为起点，剩余的作为终点
+                result.origin = parts[0];
+                result.destination = parts.slice(1).join(' ');
+                return result;
+            }
+
+            return result;
+        }
+
+        // 清除等待状态
+        function clearWaitingState() {
+            waitingFor = null;
+            pendingOrigin = null;
+            pendingDestination = null;
+        }
+
+        // 添加消息
+        function addMessage(text, type) {
+            const chatMessages = document.getElementById('chat-messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = type === 'user' ? 'user-message' : 'assistant-message';
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            
+            // 格式化消息（处理列表）
+            const formattedText = formatMessage(text);
+            contentDiv.innerHTML = formattedText;
+            
+            messageDiv.appendChild(contentDiv);
+            chatMessages.appendChild(messageDiv);
+            
+            // 自动滚动到底部
+            scrollToBottom();
+        }
+
+        // 格式化消息
+        function formatMessage(text) {
+            // 处理列表
+            return text.replace(/^- (.*$)/gm, '<li>$1</li>')
+                      .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+        }
+
+        // 显示正在输入
+        function showTypingIndicator() {
+            if (isTyping) return;
+            
+            isTyping = true;
+            const chatMessages = document.getElementById('chat-messages');
+            
+            const typingDiv = document.createElement('div');
+            typingDiv.className = 'typing-indicator';
+            typingDiv.id = 'typing-indicator';
+            typingDiv.innerHTML = '<span></span><span></span><span></span>';
+            
+            chatMessages.appendChild(typingDiv);
+            scrollToBottom();
+        }
+
+        // 隐藏正在输入
+        function hideTypingIndicator() {
+            isTyping = false;
+            const typingDiv = document.getElementById('typing-indicator');
+            if (typingDiv) {
+                typingDiv.remove();
+            }
+        }
+
+        // 添加错误消息
+        function addErrorMessage(text) {
+            const chatMessages = document.getElementById('chat-messages');
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error-message';
+            errorDiv.textContent = text;
+            chatMessages.appendChild(errorDiv);
+            scrollToBottom();
+        }
+
+        // 滚动到底部
+        function scrollToBottom() {
+            const chatMessages = document.getElementById('chat-messages');
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // 重置对话
+        function clearChat() {
+            const chatMessages = document.getElementById('chat-messages');
+            chatMessages.innerHTML = '';
+
+            // 生成新的会话ID
+            sessionId = 'web-session-' + Date.now();
+
+            // 清除等待状态
+            clearWaitingState();
+
+            // 清除位置相关缓存
+            sessionStorage.removeItem('currentLocation');
+            sessionStorage.removeItem('currentLat');
+            sessionStorage.removeItem('currentLng');
+
+            // 重置位置栏显示
+            const locationText = document.getElementById('current-location-text');
+            locationText.textContent = '点击定位';
+
+            // 添加欢迎消息
+            addMessage('你好！我是你的旅行助手，有什么可以帮你的吗？', 'assistant');
+        }
+
+        // 启用位置编辑
+        function enableEditLocation() {
+            const locationButton = document.querySelector('.location-button');
+            const locationText = document.getElementById('current-location-text');
+            const oldValue = locationText.textContent.trim();
+            
+            // 创建input元素
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = oldValue;
+            input.style.border = '1px solid var(--primary-color)';
+            input.style.borderRadius = '20px';
+            input.style.padding = '6px 12px';
+            input.style.fontSize = '14px';
+            input.style.outline = 'none';
+            input.style.minWidth = '150px';
+            
+            // 替换span为input
+            locationText.replaceWith(input);
+            
+            // 聚焦并选中
+            input.focus();
+            input.select();
+            
+            // 失去焦点时保存
+            input.onblur = async function() {
+                const newValue = input.value.trim();
+                if (newValue && newValue !== oldValue) {
+                    // 替换input为span
+                    const newLocationText = document.createElement('span');
+                    newLocationText.className = 'location-text';
+                    newLocationText.id = 'current-location-text';
+                    newLocationText.textContent = newValue;
+                    input.replaceWith(newLocationText);
+                    
+                    await updateSessionLocation(newValue);
+                    sessionStorage.setItem('currentLocation', newValue);
+                    showToast('位置已更新：' + newValue, 'success');
+                } else {
+                    // 替换input为span
+                    const newLocationText = document.createElement('span');
+                    newLocationText.className = 'location-text';
+                    newLocationText.id = 'current-location-text';
+                    newLocationText.textContent = oldValue;
+                    input.replaceWith(newLocationText);
+                }
+            };
+            
+            // 按回车保存
+            input.onkeypress = function(e) {
+                if (e.key === 'Enter') {
+                    input.blur();
+                }
+            };
+        }
+
+        // 更新会话位置
+        async function updateSessionLocation(location) {
+            try {
+                await fetch('/api/update-location', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        location: location,
+                        sessionId: sessionId
+                    })
+                });
+            } catch (error) {
+                console.error('更新位置失败:', error);
+            }
+        }
+
+        // 初始化当前位置
+        function initCurrentLocation() {
+            const savedLocation = sessionStorage.getItem('currentLocation');
+            const locationText = document.getElementById('current-location-text');
+            
+            if (savedLocation) {
+                locationText.textContent = savedLocation;
+            } else {
+                locationText.textContent = '点击定位';
+            }
+        }
+
+        // 会话缓存管理
+        function saveSession() {
+            const chatMessages = document.getElementById('chat-messages');
+            const messages = [];
+            
+            // 收集所有消息
+            chatMessages.querySelectorAll('.user-message, .assistant-message').forEach(msg => {
+                const content = msg.querySelector('.message-content').innerHTML;
+                const type = msg.classList.contains('user-message') ? 'user' : 'assistant';
+                messages.push({ type, content, timestamp: Date.now() });
+            });
+            
+            // 限制消息数量
+            if (messages.length > MAX_MESSAGES_PER_SESSION) {
+                messages.splice(0, messages.length - MAX_MESSAGES_PER_SESSION);
+            }
+            
+            // 获取现有会话
+            let sessions = JSON.parse(sessionStorage.getItem(SESSION_STORAGE_KEY) || '[]');
+            
+            // 更新或添加当前会话
+            const sessionIndex = sessions.findIndex(s => s.id === sessionId);
+            const sessionData = {
+                id: sessionId,
+                name: `会话 ${new Date().toLocaleString()}`,
+                messages: messages,
+                lastActive: Date.now(),
+                location: document.getElementById('current-location-text').textContent
+            };
+            
+            if (sessionIndex >= 0) {
+                sessions[sessionIndex] = sessionData;
+            } else {
+                sessions.push(sessionData);
+                // 限制会话数量
+                if (sessions.length > MAX_SESSIONS) {
+                    sessions.shift();
+                }
+            }
+            
+            // 保存回sessionStorage
+            sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions));
+        }
+
+        function loadSession(sessionIdToLoad) {
+            const sessions = JSON.parse(sessionStorage.getItem(SESSION_STORAGE_KEY) || '[]');
+            const session = sessions.find(s => s.id === sessionIdToLoad);
+            
+            if (session) {
+                // 清空当前聊天
+                const chatMessages = document.getElementById('chat-messages');
+                chatMessages.innerHTML = '';
+                
+                // 加载会话消息
+                session.messages.forEach(msg => {
+                    addMessage(msg.content, msg.type);
+                });
+                
+                // 恢复会话状态
+                sessionId = sessionIdToLoad;
+                document.getElementById('current-location-text').textContent = session.location || '点击定位';
+                
+                // 清除等待状态
+                clearWaitingState();
+                
+                showToast('会话已加载', 'success');
+            }
+        }
+
+        function getSessions() {
+            return JSON.parse(sessionStorage.getItem(SESSION_STORAGE_KEY) || '[]');
+        }
+
+        function deleteSession(sessionIdToDelete) {
+            let sessions = JSON.parse(sessionStorage.getItem(SESSION_STORAGE_KEY) || '[]');
+            sessions = sessions.filter(s => s.id !== sessionIdToDelete);
+            sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions));
+            showToast('会话已删除', 'success');
+        }
+
+        // 定期保存会话
+        setInterval(saveSession, 30000); // 每30秒保存一次
+
+        // 初始化
+        window.onload = function() {
+            initCurrentLocation();
+            // 自动定位
+            getCurrentLocation();
+            // 加载最近的会话
+            loadMostRecentSession();
+            // 渲染会话列表
+            renderSessionList();
+            // 初始化侧边栏状态
+            initSidebarState();
+        };
+
+        function loadMostRecentSession() {
+            const sessions = getSessions();
+            if (sessions.length > 0) {
+                // 按最后活跃时间排序
+                sessions.sort((a, b) => b.lastActive - a.lastActive);
+                loadSession(sessions[0].id);
+            }
+        }
+
+        // 创建新会话
+        function createNewSession() {
+            // 生成新的会话ID
+            const newSessionId = 'web-session-' + Date.now();
+            // 清空当前聊天
+            const chatMessages = document.getElementById('chat-messages');
+            chatMessages.innerHTML = '';
+            // 添加欢迎消息
+            addMessage('你好！我是你的旅行助手，有什么可以帮你的吗？', 'assistant');
+            // 更新会话ID
+            sessionId = newSessionId;
+            // 清除等待状态
+            clearWaitingState();
+            // 重置临时变量
+            pendingOrigin = null;
+            pendingDestination = null;
+            waitingFor = null;
+            // 保存新会话
+            saveSession();
+            // 更新会话列表
+            renderSessionList();
+            // 显示提示
+            showToast('新会话已创建', 'success');
+        }
+
+        // 渲染会话列表
+        function renderSessionList() {
+            const sessionList = document.getElementById('session-list');
+            const sessions = getSessions();
+            
+            // 按最后活跃时间排序
+            sessions.sort((a, b) => b.lastActive - a.lastActive);
+            
+            // 按时间分类
+            const categorizedSessions = categorizeSessions(sessions);
+            
+            // 清空列表
+            sessionList.innerHTML = '';
+            
+            // 渲染今天的会话
+            if (categorizedSessions.today.length > 0) {
+                const todayGroup = document.createElement('div');
+                todayGroup.className = 'session-group';
+                todayGroup.innerHTML = `
+                    <div class="session-group-title">今天</div>
+                    ${categorizedSessions.today.map(session => renderSessionItem(session)).join('')}
+                `;
+                sessionList.appendChild(todayGroup);
+            }
+            
+            // 渲染昨天的会话
+            if (categorizedSessions.yesterday.length > 0) {
+                const yesterdayGroup = document.createElement('div');
+                yesterdayGroup.className = 'session-group';
+                yesterdayGroup.innerHTML = `
+                    <div class="session-group-title">昨天</div>
+                    ${categorizedSessions.yesterday.map(session => renderSessionItem(session)).join('')}
+                `;
+                sessionList.appendChild(yesterdayGroup);
+            }
+            
+            // 渲染7天内的会话
+            if (categorizedSessions.sevenDays.length > 0) {
+                const sevenDaysGroup = document.createElement('div');
+                sevenDaysGroup.className = 'session-group';
+                sevenDaysGroup.innerHTML = `
+                    <div class="session-group-title">7天内</div>
+                    ${categorizedSessions.sevenDays.map(session => renderSessionItem(session)).join('')}
+                `;
+                sessionList.appendChild(sevenDaysGroup);
+            }
+        }
+
+        // 按时间分类会话
+        function categorizeSessions(sessions) {
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+            const sevenDaysAgo = new Date(today);
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            
+            return {
+                today: sessions.filter(session => {
+                    const sessionDate = new Date(session.lastActive);
+                    return sessionDate >= today;
+                }),
+                yesterday: sessions.filter(session => {
+                    const sessionDate = new Date(session.lastActive);
+                    return sessionDate >= yesterday && sessionDate < today;
+                }),
+                sevenDays: sessions.filter(session => {
+                    const sessionDate = new Date(session.lastActive);
+                    return sessionDate >= sevenDaysAgo && sessionDate < yesterday;
+                })
+            };
+        }
+
+        // 渲染会话项
+        function renderSessionItem(session) {
+            const isActive = session.id === sessionId;
+            const preview = session.messages.length > 0 
+                ? session.messages[session.messages.length - 1].content.replace(/<[^>]*>/g, '').substring(0, 30) 
+                : '新会话';
+            const time = new Date(session.lastActive).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+            
+            return `
+                <div class="session-item ${isActive ? 'active' : ''}" onclick="loadSession('${session.id}')">
+                    <div class="session-info">
+                        <div class="session-name">${session.name}</div>
+                        <div class="session-preview">${preview}${preview.length >= 30 ? '...' : ''}</div>
+                    </div>
+                    <div style="display: flex; align-items: flex-start; gap: 10px;">
+                        <div class="session-time">${time}</div>
+                        <div class="session-actions">
+                            <button class="session-action-button" onclick="event.stopPropagation(); renameSession('${session.id}')">✏️</button>
+                            <button class="session-action-button" onclick="event.stopPropagation(); deleteSession('${session.id}')">🗑️</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 重命名会话
+        function renameSession(sessionId) {
+            const sessions = getSessions();
+            const session = sessions.find(s => s.id === sessionId);
+            if (session) {
+                const newName = prompt('请输入新的会话名称:', session.name);
+                if (newName && newName.trim()) {
+                    session.name = newName.trim();
+                    sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions));
+                    renderSessionList();
+                    showToast('会话已重命名', 'success');
+                }
+            }
+        }
+
+        // 覆盖保存会话函数，添加更新会话列表的功能
+        const originalSaveSession = saveSession;
+        saveSession = function() {
+            originalSaveSession();
+            renderSessionList();
+        };
+
+        // 覆盖删除会话函数，添加更新会话列表的功能
+        const originalDeleteSession = deleteSession;
+        deleteSession = function(sessionIdToDelete) {
+            originalDeleteSession(sessionIdToDelete);
+            renderSessionList();
+            // 如果删除的是当前会话，创建新会话
+            if (sessionIdToDelete === sessionId) {
+                createNewSession();
+            }
+        };
+
+        // 覆盖加载会话函数，添加更新会话列表的功能
+        const originalLoadSession = loadSession;
+        loadSession = function(sessionIdToLoad) {
+            originalLoadSession(sessionIdToLoad);
+            renderSessionList();
+        };
+
+        // 切换侧边栏收起/展开
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            sidebar.classList.toggle('collapsed');
+            // 保存状态到localStorage
+            const isCollapsed = sidebar.classList.contains('collapsed');
+            localStorage.setItem('sidebarCollapsed', isCollapsed);
+        }
+
+        // 初始化侧边栏状态
+        function initSidebarState() {
+            const isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+            const sidebar = document.getElementById('sidebar');
+            if (isCollapsed) {
+                sidebar.classList.add('collapsed');
+            }
+        }
+
+        // 添加路线消息（卡片式）
+        function addRouteMessage(routeData) {
+            const chatMessages = document.getElementById('chat-messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'assistant-message';
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            
+            // 路线标题
+            contentDiv.innerHTML = `<h4>从 ${routeData.origin} 到 ${routeData.destination} 的出行方案</h4>`;
+            
+            // 方案卡片
+            routeData.schemes.forEach((scheme, index) => {
+                const isRecommended = index === routeData.recommended_index;
+                
+                const cardDiv = document.createElement('div');
+                cardDiv.className = `route-card ${isRecommended ? 'recommended' : ''}`;
+                
+                // 卡片内容
+                let cardContent = `
+                    <div class="card-header">
+                        <span class="scheme-type">${getSchemeIcon(scheme.type)} ${scheme.type}</span>
+                        ${isRecommended ? '<span class="recommended-badge">⭐ 推荐</span>' : ''}
+                    </div>
+                    <div class="card-metrics">
+                        <span class="metric time">⏱️ ${scheme.duration}</span>
+                        <span class="metric cost">💰 ${scheme.cost}</span>
+                        <span class="metric distance">📍 ${scheme.distance}</span>
+                    </div>
+                `;
+                
+                // 时间构成
+                if (scheme.time_breakdown) {
+                    cardContent += `
+                        <div class="card-section">
+                            <strong>🚶 时间构成:</strong> ${scheme.time_breakdown}
+                        </div>
+                    `;
+                }
+                
+                // 途经地铁
+                if (scheme.metro_lines && scheme.metro_lines.length > 0) {
+                    cardContent += `
+                        <div class="card-section">
+                            <strong>🚇 途经地铁:</strong> ${scheme.metro_lines.join('、')}
+                        </div>
+                    `;
+                }
+                
+                // 详细步骤（可折叠）
+                if (scheme.structuredSteps && scheme.structuredSteps.length > 0) {
+                    cardContent += `
+                        <div class="card-section">
+                            <button class="toggle-steps" onclick="toggleSteps(this)">👣 查看详细换乘</button>
+                            <div class="steps-content" style="display: none;">
+                                ${renderMetroSteps(scheme.structuredSteps)}
+                            </div>
+                        </div>
+                    `;
+                } else if (scheme.steps && scheme.steps.length > 0) {
+                    cardContent += `
+                        <div class="card-section">
+                            <button class="toggle-steps" onclick="toggleSteps(this)">👣 查看详细换乘</button>
+                            <div class="steps-content" style="display: none;">
+                                <div class="step-list">
+                                    ${scheme.steps.map((step, index) => `
+                                        <div class="step-item">
+                                            <div class="step-number">${index + 1}</div>
+                                            <div class="step-text">${step}</div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                // 推荐理由
+            if (isRecommended && scheme.recommendation_reason) {
+                cardContent += `
+                    <div class="card-section recommendation">
+                        <strong>📝 推荐理由:</strong> ${scheme.recommendation_reason}
+                    </div>
+                `;
+            }
+            
+            // 导航按钮
+            if (scheme.dest_coord && scheme.dest_coord.lng && scheme.dest_coord.lat) {
+                cardContent += `
+                    <div class="card-section">
+                        <button class="action-button" onclick="startNavigation(${scheme.dest_coord.lng}, ${scheme.dest_coord.lat}, '${routeData.destination}')">🗺️ 导航</button>
+                    </div>
+                `;
+            }
+            
+            cardDiv.innerHTML = cardContent;
+            contentDiv.appendChild(cardDiv);
+            });
+            
+            // 自然语言建议
+            if (routeData.natural_advice) {
+                const adviceDiv = document.createElement('div');
+                adviceDiv.className = 'natural-advice';
+                adviceDiv.innerHTML = `<p>💡 ${routeData.natural_advice}</p>`;
+                contentDiv.appendChild(adviceDiv);
+            }
+            
+            messageDiv.appendChild(contentDiv);
+            chatMessages.appendChild(messageDiv);
+            scrollToBottom();
+            // 保存会话
+            saveSession();
+        }
+
+        // 获取方案图标
+        function getSchemeIcon(type) {
+            const icons = {
+                '驾车': '🚗',
+                '公共交通': '🚌',
+                '公交': '🚌',
+                '地铁': '🚇',
+                '骑行': '🚴‍♂️',
+                '步行': '🚶‍♂️'
+            };
+            return icons[type] || '🚗';
+        }
+
+        // 切换步骤展开/折叠
+        function toggleSteps(button) {
+            const content = button.nextElementSibling;
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                button.textContent = '👣 收起详细换乘';
+            } else {
+                content.style.display = 'none';
+                button.textContent = '👣 查看详细换乘';
+            }
+        }
+
+        // 添加 POI 消息（卡片式）
+        function addPoiMessage(poiData) {
+            console.log('addPoiMessage 被调用, poiData:', poiData);
+            const chatMessages = document.getElementById('chat-messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'assistant-message';
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            
+            // POI 标题
+            contentDiv.innerHTML = `<h4>在 ${poiData.center} 附近找到以下 ${poiData.keywords}：</h4>`;
+            
+            // POI 卡片
+            poiData.results.forEach((poi, index) => {
+                const cardDiv = document.createElement('div');
+                cardDiv.className = 'poi-card';
+                
+                // 卡片内容
+                let cardContent = `
+                    <div class="poi-header">
+                        <span class="poi-name">${getPoiIcon(poi.type)} ${poi.name}</span>
+                        <span class="distance-badge">📍 ${poi.distance}米</span>
+                    </div>
+                `;
+                
+                // 地址
+                if (poi.address) {
+                    cardContent += `
+                        <div class="poi-info">
+                            <span class="info-label">📍 地址：</span>
+                            <span class="info-value">${poi.address}</span>
+                        </div>
+                    `;
+                }
+                
+                // 电话
+                if (poi.tel) {
+                    cardContent += `
+                        <div class="poi-info">
+                            <span class="info-label">📞 电话：</span>
+                            <span class="info-value">${poi.tel}</span>
+                        </div>
+                    `;
+                }
+                
+                // 类型
+                if (poi.type) {
+                    cardContent += `
+                        <div class="poi-info">
+                            <span class="info-label">🏷️ 类型：</span>
+                            <span class="info-value">${poi.type}</span>
+                        </div>
+                    `;
+                }
+                
+                // 操作按钮
+                cardContent += `
+                    <div class="poi-actions">
+                        <button class="action-button" onclick="navigateTo('${poi.name}', ${poi.lng || 'null'}, ${poi.lat || 'null'})"><span>🗺️</span> 导航</button>
+                        <button class="action-button" onclick="callPhone('${poi.tel}')">📞 呼叫</button>
+                        <button class="action-button" onclick="favoritePoi('${poi.name}')">❤️ 收藏</button>
+                    </div>
+                `;
+                
+                cardDiv.innerHTML = cardContent;
+                contentDiv.appendChild(cardDiv);
+            });
+            
+            messageDiv.appendChild(contentDiv);
+            chatMessages.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
+        // 获取 POI 图标
+        function getPoiIcon(type) {
+            const icons = {
+                '餐厅': '🍔',
+                '酒店': '🏨',
+                '景点': '⛰️',
+                '咖啡馆': '☕',
+                '商场': '🛍️',
+                '医院': '🏥',
+                '银行': '🏦',
+                '学校': '🏫'
+            };
+            return icons[type] || '📍';
+        }
+
+        // 导航功能
+        function navigateTo(poiName, lng, lat) {
+            try {
+                let url;
+                if (lng && lat) {
+                    // 有坐标，直接导航
+                    url = `https://uri.amap.com/navigation?to=${lng},${lat},${encodeURIComponent(poiName)}&mode=car&callnative=1`;
+                } else {
+                    // 没有坐标，使用名称搜索（降级方案）
+                    url = `https://uri.amap.com/search?keyword=${encodeURIComponent(poiName)}&callnative=1`;
+                }
+                window.location.href = url;
+            } catch (error) {
+                console.error('导航失败:', error);
+                showToast('导航失败，请稍后重试', 'error');
+            }
+        }
+
+        // 呼叫功能
+        function callPhone(tel) {
+            if (tel) {
+                window.location.href = `tel:${tel}`;
+            } else {
+                alert('该地点没有电话号码');
+            }
+        }
+
+        // 收藏功能
+        function favoritePoi(poiName) {
+            showToast('已收藏 ' + poiName, 'success');
+        }
+
+        // 显示 Toast 提示
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            
+            let icon = 'ℹ️';
+            if (type === 'success') icon = '✅';
+            if (type === 'error') icon = '❌';
+            if (type === 'warning') icon = '⚠️';
+            
+            toast.innerHTML = `${icon} ${message}`;
+            document.body.appendChild(toast);
+            
+            // 3秒后自动消失
+            setTimeout(() => {
+                toast.style.animation = 'slideIn 0.3s ease-out reverse';
+                setTimeout(() => {
+                    toast.remove();
+                }, 300);
+            }, 3000);
+        }
+
+        // 导航函数
+        function startNavigation(lng, lat, destName) {
+            try {
+                const encodedDestName = encodeURIComponent(destName);
+                const url = `https://uri.amap.com/navigation?to=${lng},${lat},${encodedDestName}&mode=car&callnative=1`;
+                window.location.href = url;
+            } catch (error) {
+                console.error('导航失败:', error);
+                showToast('导航失败，请稍后重试', 'error');
+            }
+        }
+
+        // 地铁线路颜色映射
+        const metroLineColors = {
+            '1号线': '#F3D03E',
+            '2号线': '#0060A9',
+            '3号线': '#F47920',
+            '4号线': '#008C45',
+            '5号线': '#C23B22',
+            '6号线': '#8A3F8F',
+            '8号线': '#0099B0',
+            '11号线': '#8B5A2B',
+            '18号线': '#1E3A8A',
+            '广佛线': '#00B5AD'
+        };
+
+        // 格式化步行距离
+        function formatWalkingDistance(meters) {
+            if (meters < 1000) {
+                return `${meters}米`;
+            } else {
+                return `${(meters / 1000).toFixed(1)}公里`;
+            }
+        }
+
+        // 渲染地铁换乘步骤
+        function renderMetroSteps(steps) {
+            let html = '';
+            steps.forEach((step, index) => {
+                if (step.type === 'metro') {
+                    const lineColor = metroLineColors[step.line] || '#999999';
+                    html += `
+                        <div class="metro-step-card">
+                            <div class="step-header">
+                                <div class="line-indicator" style="background-color: ${lineColor}">${step.line}</div>
+                                <div class="step-info">
+                                    <div class="station-info">${step.start} → ${step.end}</div>
+                                    <div class="step-details">经过${step.stops}站</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else if (step.type === 'walk') {
+                    html += `
+                        <div class="walk-step-card">
+                            <div class="step-header">
+                                <div class="line-indicator" style="background-color: #999999">🚶</div>
+                                <div class="step-info">
+                                    <div class="station-info">步行至目的地</div>
+                                    <div class="step-details">${formatWalkingDistance(step.distance_meters)} · 约${step.duration_minutes}分钟</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else if (step.type === 'bus') {
+                    html += `
+                        <div class="bus-step-card">
+                            <div class="step-header">
+                                <div class="line-indicator" style="background-color: #4CAF50">🚌</div>
+                                <div class="step-info">
+                                    <div class="station-info">${step.start} → ${step.end}</div>
+                                    <div class="step-details">${step.line} · 经过${step.stops}站</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else if (step.type === 'railway') {
+                    html += `
+                        <div class="railway-step-card">
+                            <div class="step-header">
+                                <div class="line-indicator" style="background-color: #FF9800">🚄</div>
+                                <div class="step-info">
+                                    <div class="station-info">${step.start} → ${step.end}</div>
+                                    <div class="step-details">${step.line} · 经过${step.stops}站</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else if (step.type === 'train') {
+                    html += `
+                        <div class="railway-step-card">
+                            <div class="step-header">
+                                <div class="line-indicator" style="background-color: #FF9800">🚄</div>
+                                <div class="step-info">
+                                    <div class="station-info">${step.start} → ${step.end}</div>
+                                    <div class="step-details">${step.line} · 约${step.duration_minutes}分钟</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else if (step.type === 'plane') {
+                    html += `
+                        <div class="plane-step-card">
+                            <div class="step-header">
+                                <div class="line-indicator" style="background-color: #2196F3">✈️</div>
+                                <div class="step-info">
+                                    <div class="station-info">${step.start} → ${step.end}</div>
+                                    <div class="step-details">${step.line} · 约${step.duration_minutes}分钟</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else if (step.type === 'drive') {
+                    html += `
+                        <div class="drive-step-card">
+                            <div class="step-header">
+                                <div class="line-indicator" style="background-color: #4CAF50">🚗</div>
+                                <div class="step-info">
+                                    <div class="station-info">${step.start} → ${step.end}</div>
+                                    <div class="step-details">约${step.duration_minutes}分钟 · ${formatWalkingDistance(step.distance_meters)}</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                // 添加换乘指示
+                if (index < steps.length - 1) {
+                    html += `
+                        <div class="transfer-indicator">
+                            <div class="transfer-line"></div>
+                            <div class="transfer-text">换乘</div>
+                        </div>
+                    `;
+                }
+            });
+            return html;
+        }
+
+        // 获取当前位置
+        function getCurrentLocation() {
+            const locationText = document.getElementById('current-location-text');
+            
+            // 可选：如果已经有位置，询问是否重新定位
+            if (locationText.textContent && locationText.textContent !== '点击定位' && locationText.textContent !== '正在定位...') {
+                if (!confirm(`当前位置是：${locationText.textContent}，是否重新定位？`)) {
+                    return;
+                }
+            }
+            
+            if (!navigator.geolocation) {
+                showToast('浏览器不支持定位', 'warning');
+                locationText.textContent = '浏览器不支持定位';
+                return;
+            }
+
+            locationText.textContent = '正在定位...';
+
+            navigator.geolocation.getCurrentPosition(
+                async (position) => {
+                    const { latitude, longitude } = position.coords;
+                    
+                    // 保存坐标到 sessionStorage
+                    sessionStorage.setItem('currentLng', longitude);
+                    sessionStorage.setItem('currentLat', latitude);
+                    
+                    try {
+                        // 使用反向地理编码获取地点名称
+                        const locationName = await reverseGeocode(latitude, longitude);
+                        locationText.textContent = locationName;
+                        
+                        // 保存到会话
+                        sessionStorage.setItem('currentLocation', locationName);
+                        await updateSessionLocation(locationName, latitude, longitude);
+                        showToast('定位成功', 'success');
+                    } catch (error) {
+                        console.error('获取位置名称失败:', error);
+                        locationText.textContent = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+                        showToast('获取位置名称失败，请手动输入', 'warning');
+                    }
+                },
+                (error) => {
+                    console.error('定位失败:', error);
+                    locationText.textContent = '定位失败，请手动输入';
+                    showToast('定位失败，请检查权限或手动输入', 'error');
+                }
+            );
+        }
+
+        // 编辑当前位置
+        function editCurrentLocation() {
+            const locationText = document.getElementById('current-location-text');
+            const oldValue = locationText.textContent;
+
+            // 创建input元素
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = oldValue;
+            input.style.border = '1px solid var(--primary-color)';
+            input.style.borderRadius = '20px';
+            input.style.padding = '6px 12px';
+            input.style.fontSize = '14px';
+            input.style.outline = 'none';
+            input.style.minWidth = '150px';
+            
+            // 替换span为input
+            locationText.replaceWith(input);
+            
+            // 聚焦并选中
+            input.focus();
+            input.select();
+            
+            // 失去焦点时保存
+            input.onblur = async function() {
+                const newValue = input.value.trim();
+                if (newValue && newValue !== oldValue) {
+                    // 替换input为span
+                    const newLocationText = document.createElement('span');
+                    newLocationText.className = 'location-text';
+                    newLocationText.id = 'current-location-text';
+                    newLocationText.textContent = newValue;
+                    input.replaceWith(newLocationText);
+                    
+                    await updateSessionLocation(newValue);
+                    sessionStorage.setItem('currentLocation', newValue);
+                    showToast('位置已更新：' + newValue, 'success');
+                } else {
+                    // 替换input为span
+                    const newLocationText = document.createElement('span');
+                    newLocationText.className = 'location-text';
+                    newLocationText.id = 'current-location-text';
+                    newLocationText.textContent = oldValue;
+                    input.replaceWith(newLocationText);
+                }
+            };
+            
+            // 按回车保存
+            input.onkeypress = function(e) {
+                if (e.key === 'Enter') {
+                    input.blur();
+                }
+            };
+        }
+
+        // 更新会话中的位置
+        async function updateSessionLocation(location, lat, lng) {
+            try {
+                await fetch('/api/update-location', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sessionId, location, lat, lng })
+                });
+            } catch (error) {
+                console.error('更新位置失败:', error);
+            }
+        }
+
+        // 反向地理编码（调用后端 API）
+        async function reverseGeocode(latitude, longitude) {
+            try {
+                const response = await fetch('/api/reverse-geocode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ latitude, longitude })
+                });
+                const data = await response.json();
+                if (data.success && data.location) {
+                    return data.location;
+                }
+                // 如果 API 返回失败，使用经纬度作为后备
+                return `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+            } catch (error) {
+                console.error('逆地理编码失败:', error);
+                // 网络错误时使用经纬度作为后备
+                return `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+            }
+        }
+
+        // 初始化当前位置
+        function initCurrentLocation() {
+            const savedLocation = sessionStorage.getItem('currentLocation');
+            const locationText = document.getElementById('current-location-text');
+            
+            if (savedLocation) {
+                locationText.textContent = savedLocation;
+            } else {
+                // 不自动定位，显示提示让用户点击
+                locationText.textContent = '点击定位';
+            }
+        }
+
+        // 页面加载时初始化
+        window.onload = function() {
+            initCurrentLocation();
+            initTheme();
+        };
+
+        // 初始化主题
+        function initTheme() {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'dark') {
+                document.body.classList.add('dark-mode');
+                document.querySelector('.theme-toggle').textContent = '☀️';
+            } else {
+                document.body.classList.remove('dark-mode');
+                document.querySelector('.theme-toggle').textContent = '🌙';
+            }
+        }
+
+        // 切换主题
+        function toggleTheme() {
+            const isDark = document.body.classList.toggle('dark-mode');
+            const toggleButton = document.querySelector('.theme-toggle');
+            
+            if (isDark) {
+                toggleButton.textContent = '☀️';
+                localStorage.setItem('theme', 'dark');
+            } else {
+                toggleButton.textContent = '🌙';
+                localStorage.setItem('theme', 'light');
+            }
+        }
+    </script>
+</body>
+</html>
