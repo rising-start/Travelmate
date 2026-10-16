@@ -4,6 +4,24 @@
 
 const RouteSkill = require('../../src/skills/RouteSkill');
 
+// execute 会调用下面全部 session 方法，缺一个就会被 catch 成'处理请求时出现问题'
+function createMockSession(overrides = {}) {
+  return {
+    getLastDestination: jest.fn().mockReturnValue(null),
+    clearPendingRouteInfo: jest.fn(),
+    getPendingRouteInfo: jest.fn().mockReturnValue(null),
+    getLastOrigin: jest.fn().mockReturnValue(null),
+    getCurrentLocation: jest.fn().mockReturnValue(null),
+    getLastSearchedLocation: jest.fn().mockReturnValue(null),
+    getLastMentionedLocation: jest.fn().mockReturnValue(null),
+    setPendingRouteInfo: jest.fn(),
+    updateLastOrigin: jest.fn(),
+    updateLastDestination: jest.fn(),
+    addToLocationHistory: jest.fn(),
+    ...overrides
+  };
+}
+
 describe('RouteSkill', () => {
   let routeSkill;
   let mockMcp;
@@ -223,13 +241,13 @@ describe('RouteSkill', () => {
         origin: null,
         destination: null
       };
-      const session = {
+      const session = createMockSession({
         getLastDestination: jest.fn().mockReturnValue('广州')
-      };
+      });
       
       routeSkill.handlePlanRoute = jest.fn().mockResolvedValue({ thought: '路线规划完成', answer: '路线结果' });
       
-      const result = await routeSkill.execute(params, session);
+      await routeSkill.execute(params, session);
       expect(routeSkill.handlePlanRoute).toHaveBeenCalledWith({ origin: '广州', destination: '珠海', mode: undefined }, session);
     });
 
@@ -248,15 +266,19 @@ describe('RouteSkill', () => {
 
     it('should handle pending route info', async () => {
       const params = {};
-      const session = {
-        getPendingRouteInfo: jest.fn().mockReturnValue({ origin: '上海' }),
-        clearPendingRouteInfo: jest.fn()
-      };
+      const session = createMockSession({
+        getPendingRouteInfo: jest.fn().mockReturnValue({ origin: '上海' })
+      });
       
       routeSkill.handlePlanRoute = jest.fn().mockResolvedValue({ thought: '路线规划完成', answer: '路线结果' });
       
-      await routeSkill.execute(params, session);
-      expect(routeSkill.handlePlanRoute).toHaveBeenCalledWith({ origin: '上海', destination: undefined, mode: undefined }, session);
+      const result = await routeSkill.execute(params, session);
+      // pendingRouteInfo 里只有起点、没有目的地，此时应继续追问，而不是拿 undefined 去规划
+      expect(result.needs_user_input).toBe(true);
+      expect(result.answer).toBe('请问从上海去哪里？');
+      expect(routeSkill.handlePlanRoute).not.toHaveBeenCalled();
+      // 追问时要把待补全的路线信息写回会话
+      expect(session.setPendingRouteInfo).toHaveBeenCalledWith({ origin: '上海' });
     });
 
     it('should handle correcting input', async () => {
@@ -265,7 +287,7 @@ describe('RouteSkill', () => {
         origin: '上海',
         destination: '广州'
       };
-      const session = {};
+      const session = createMockSession();
       
       routeSkill.isCorrectingInput = jest.fn().mockReturnValue(true);
       routeSkill.parseCorrectedInput = jest.fn().mockReturnValue({ origin: '北京', destination: '广州' });
@@ -277,14 +299,7 @@ describe('RouteSkill', () => {
 
     it('should ask for origin when missing', async () => {
       const params = {};
-      const session = {
-        getPendingRouteInfo: jest.fn().mockReturnValue(null),
-        getLastOrigin: jest.fn().mockReturnValue(null),
-        getCurrentLocation: jest.fn().mockReturnValue(null),
-        getLastDestination: jest.fn().mockReturnValue(null),
-        getLastMentionedLocation: jest.fn().mockReturnValue(null),
-        setPendingRouteInfo: jest.fn()
-      };
+      const session = createMockSession();
       
       const result = await routeSkill.execute(params, session);
       expect(result.answer).toBe('请问您从哪里出发？');
@@ -293,11 +308,7 @@ describe('RouteSkill', () => {
 
     it('should ask for destination when missing', async () => {
       const params = { origin: '上海' };
-      const session = {
-        getPendingRouteInfo: jest.fn().mockReturnValue(null),
-        getLastDestination: jest.fn().mockReturnValue(null),
-        setPendingRouteInfo: jest.fn()
-      };
+      const session = createMockSession();
       
       const result = await routeSkill.execute(params, session);
       expect(result.answer).toBe('请问从上海去哪里？');
