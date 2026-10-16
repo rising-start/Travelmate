@@ -61,7 +61,9 @@ class LLMService {
     const safeUserInput = sanitizeUserInput(userInput);
 
     const sessionId = session?.sessionId || 'default';
-    const cacheInput = `${safeUserInput}|${contextFingerprint}|${sessionId}`;
+    // 缓存 key 必须用原始输入：sanitizeUserInput 会截断到 500 字，
+    // 用清洗后的取值会让“前 500 字相同、尾部不同”的请求共用同一份缓存
+    const cacheInput = `${String(userInput ?? '')}|${contextFingerprint}|${sessionId}`;
     const inputHash = crypto.createHash('md5').update(cacheInput).digest('hex');
     // 缓存 key 必须包含提示词与模型指纹：否则不同技能/不同模型会串用同一份缓存
     const promptHash = crypto

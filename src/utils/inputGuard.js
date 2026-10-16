@@ -26,7 +26,25 @@ const VALID_SKILLS = [
 const CONTROL_CHARS = new RegExp('[\\u0000-\\u001F\\u007F]', 'g');
 const CODE_FENCE = /```/g;
 const SPECIAL_TOKENS = /<\|[^|]{0,64}\|>/g;
-const ROLE_TAGS = /<\/?(user_input|user|system|assistant|im_start|im_end)>/gi;
+// 允许标签内出现空白与换行变体，例如 < user_input >、<\nuser_input>
+const ROLE_TAGS = /<\s*\/?\s*(user_input|user|system|assistant|im_start|im_end)\s*>/gi;
+// 单次 replace 会被嵌套构造重组（<use<user_input>r_input> 清洗后正好得到 <user_input>），
+// 必须反复清洗直到结果稳定
+const MAX_STRIP_ROUNDS = 5;
+// 这些键赋值到普通对象会改写原型链，必须从 LLM 输出里剔除
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+function stripRoleTags(text) {
+  let current = text;
+  for (let round = 0; round < MAX_STRIP_ROUNDS; round += 1) {
+    const next = current.replace(ROLE_TAGS, '').replace(SPECIAL_TOKENS, '');
+    if (next === current) {
+      return next;
+    }
+    current = next;
+  }
+  return current;
+}
 
 /**
  * 清洗自由文本，供拼接到提示词前使用
@@ -38,9 +56,8 @@ function sanitizeUserInput(input, maxLength = MAX_PROMPT_TEXT_LENGTH) {
   let text = input === undefined || input === null ? '' : String(input);
   text = text
     .replace(CONTROL_CHARS, ' ')
-    .replace(CODE_FENCE, '"""')
-    .replace(SPECIAL_TOKENS, '')
-    .replace(ROLE_TAGS, '');
+    .replace(CODE_FENCE, '"""');
+  text = stripRoleTags(text);
   if (text.length > maxLength) {
     text = text.slice(0, maxLength);
   }
@@ -95,27 +112,32 @@ function isValidInstruction(instruction) {
  * @returns {Object} 清洗后的参数
  */
 function sanitizeInstructionParams(params) {
-  const result = {};
+  // 先用无原型对象承载，写回普通对象时就不会触发 __proto__ setter
+  const collected = Object.create(null);
   if (!params || typeof params !== 'object') {
-    return result;
+    return Object.assign({}, collected);
   }
   Object.entries(params).forEach(([key, value]) => {
     const safeKey = sanitizeUserInput(key, 50);
-    if (!safeKey) {
+    if (!safeKey || UNSAFE_KEYS.has(safeKey)) {
+      return;
+    }
+    // 清洗后重名时保留先到的键，避免后者静默覆盖前者
+    if (collected[safeKey] !== undefined) {
       return;
     }
     if (typeof value === 'string') {
-      result[safeKey] = sanitizeUserInput(value, MAX_PARAM_LENGTH);
+      collected[safeKey] = sanitizeUserInput(value, MAX_PARAM_LENGTH);
     } else if (typeof value === 'number' || typeof value === 'boolean') {
-      result[safeKey] = value;
+      collected[safeKey] = value;
     } else if (Array.isArray(value)) {
-      result[safeKey] = value
+      collected[safeKey] = value
         .slice(0, 10)
         .map(item => sanitizeUserInput(item, MAX_PARAM_LENGTH))
         .filter(item => item !== '');
     }
   });
-  return result;
+  return Object.assign({}, collected);
 }
 
 module.exports = {
