@@ -97,7 +97,8 @@ dist
 
 # Gatsby files
 .cache/
-public
+# 只忽略构建产物目录，不要误伤同名的静态资源目录
+/public/
 
 # Storybook build outputs
 .out
@@ -106,3 +107,6 @@ public
 # Temporary folders
 tmp/
 temp/
+
+# Docker 数据卷（Milvus/etcd/MinIO 的运行时数据，禁止入库）
+volumes/

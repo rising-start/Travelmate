@@ -1,5 +1,10 @@
 const { createClient } = require('redis');
 
+// 等待 Redis 就绪的上限（毫秒）：超时即降级到内存，避免请求被挂死
+const REDIS_WAIT_TIMEOUT = 2000;
+// 行程历史上限：会话长期存活时避免无限增长（该字段会整体序列化进 Redis）
+const MAX_TRIP_HISTORY = 50;
+
 const DIALOG_STATES = {
   INIT: 'INIT',
   COLLECTING_ORIGIN: 'COLLECTING_ORIGIN',
@@ -56,6 +61,7 @@ class ConversationSession {
     this.lastPoiResults = null; // 上次POI搜索结果
     this.lastPoiIndex = 0; // 当前推荐的是第几个
     this.poiSearch = null; // POI搜索配置
+    this.lastPoiKeywords = null; // 上次POI搜索关键词
     this.pendingRouteInfo = null; // 未完成的路线信息
   }
 
@@ -266,6 +272,9 @@ class ConversationSession {
       timestamp: Date.now(),
       completed: true,
     });
+    if (this.tripHistory.length > MAX_TRIP_HISTORY) {
+      this.tripHistory = this.tripHistory.slice(-MAX_TRIP_HISTORY);
+    }
     this.lastDestination = destination;
     this.currentLocation = destination;
     this.updateTimestamp();
@@ -420,6 +429,8 @@ class ConversationSession {
     return null;
   }
 
+  // 序列化：新增字段时必须同步加入 fromJSON，否则多轮上下文会在
+  // Redis 往返后被静默清空（历史 Bug：lastOrigin 等 5 个字段漏序列化）
   toJSON() {
     return {
       sessionId: this.sessionId,
@@ -428,16 +439,21 @@ class ConversationSession {
       dialogHistory: this.dialogHistory,
       lastRecommendation: this.lastRecommendation,
       lastTimestamp: this.lastTimestamp,
+      lastOrigin: this.lastOrigin,
       lastDestination: this.lastDestination,
+      lastSearchedLocation: this.lastSearchedLocation,
       lastMentionedLocation: this.lastMentionedLocation,
-      tripHistory: this.tripHistory,
       currentLocation: this.currentLocation,
       currentLat: this.currentLat,
       currentLng: this.currentLng,
+      locationHistory: this.locationHistory,
+      tripHistory: this.tripHistory,
       context: this.context,
       lastPoiResults: this.lastPoiResults,
       lastPoiIndex: this.lastPoiIndex,
       poiSearch: this.poiSearch,
+      lastPoiKeywords: this.lastPoiKeywords || null,
+      pendingRouteInfo: this.pendingRouteInfo,
     };
   }
 
@@ -448,12 +464,15 @@ class ConversationSession {
     session.dialogHistory = json.dialogHistory || [];
     session.lastRecommendation = json.lastRecommendation;
     session.lastTimestamp = json.lastTimestamp;
+    session.lastOrigin = json.lastOrigin || null;
     session.lastDestination = json.lastDestination;
+    session.lastSearchedLocation = json.lastSearchedLocation || null;
     session.lastMentionedLocation = json.lastMentionedLocation;
-    session.tripHistory = json.tripHistory || [];
     session.currentLocation = json.currentLocation;
     session.currentLat = json.currentLat;
     session.currentLng = json.currentLng;
+    session.locationHistory = json.locationHistory || [];
+    session.tripHistory = json.tripHistory || [];
     session.context = json.context || {
       lastMentionedCity: null,
       currentCity: null,
@@ -461,6 +480,8 @@ class ConversationSession {
     session.lastPoiResults = json.lastPoiResults;
     session.lastPoiIndex = json.lastPoiIndex || 0;
     session.poiSearch = json.poiSearch;
+    session.lastPoiKeywords = json.lastPoiKeywords || null;
+    session.pendingRouteInfo = json.pendingRouteInfo || null;
     return session;
   }
 }
@@ -470,21 +491,86 @@ class SessionManager {
   constructor() {
     this.redisClient = createClient({
       url: process.env.REDIS_URL || 'redis://localhost:6379',
+      socket: {
+        // 指数退避重连，避免 Redis 不可用时的日志风暴
+        reconnectStrategy: retries => Math.min(retries * 200, 5000),
+      },
     });
-    this.redisClient.connect().catch(console.error);
+    // 必须注册 error 监听：node-redis 断连/认证失败会 emit 'error'，
+    // 无监听时会被当作未捕获异常直接终止进程
+    this.redisClient.on('error', err => {
+      console.error('[SessionManager] Redis 错误:', err && err.message);
+    });
+    // 连接状态自愈：Redis 恢复后自动切回 Redis 存储，断开后再降级到内存
+    this.redisClient.on('ready', () => {
+      this.redisConnected = true;
+    });
+    this.redisClient.on('end', () => {
+      this.redisConnected = false;
+    });
+    this.redisConnected = false;
+    this.connectPromise = this.redisClient
+      .connect()
+      .then(() => {
+        this.redisConnected = true;
+      })
+      .catch(err => {
+        console.error(
+          '[SessionManager] Redis 连接失败，会话降级到内存存储:',
+          err && err.message
+        );
+      });
     this.cleanupInterval = null;
   }
 
-  async getSession(sessionId) {
+  // 等待连接就绪后再访问 Redis，避免启动初期请求撞上未连接状态
+  // 关键：connect() 在持续重连时会一直 pending，必须设等待上限，
+  // 否则每个请求都会被无限挂起（表现为接口无响应）
+  async waitForRedis(timeoutMs = REDIS_WAIT_TIMEOUT) {
+    if (this.redisConnected && this.redisClient.isReady) {
+      return true;
+    }
+    let timer = null;
+    const timeout = new Promise(resolve => {
+      timer = setTimeout(() => resolve(false), timeoutMs);
+    });
     try {
-      const sessionData = await this.redisClient.get(`session:${sessionId}`);
+      const ready = await Promise.race([
+        this.connectPromise.then(() => this.redisConnected),
+        timeout,
+      ]);
+      return ready === true && this.redisClient.isReady === true;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // 最后防线：会话ID只允许安全字符，避免任意字符串污染 Redis key
+  static sanitizeSessionId(sessionId) {
+    const raw =
+      sessionId === undefined || sessionId === null ? '' : String(sessionId);
+    return raw.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64) || 'default';
+  }
+
+  sessionKey(sessionId) {
+    return `session:${SessionManager.sanitizeSessionId(sessionId)}`;
+  }
+
+  async getSession(sessionId) {
+    const safeId = SessionManager.sanitizeSessionId(sessionId);
+    try {
+      // 未连接时直接走降级：否则命令会一直排队等重连，请求被无限挂起
+      if (!(await this.waitForRedis())) {
+        throw new Error('Redis 未连接');
+      }
+      const sessionData = await this.redisClient.get(this.sessionKey(safeId));
       if (sessionData) {
         const session = ConversationSession.fromJSON(JSON.parse(sessionData));
         session.updateTimestamp();
         await this.saveSession(session);
         return session;
       } else {
-        const newSession = new ConversationSession(sessionId);
+        const newSession = new ConversationSession(safeId);
         await this.saveSession(newSession);
         return newSession;
       }
@@ -494,18 +580,21 @@ class SessionManager {
       if (!this.memorySessions) {
         this.memorySessions = new Map();
       }
-      if (!this.memorySessions.has(sessionId)) {
-        this.memorySessions.set(sessionId, new ConversationSession(sessionId));
+      if (!this.memorySessions.has(safeId)) {
+        this.memorySessions.set(safeId, new ConversationSession(safeId));
       }
-      return this.memorySessions.get(sessionId);
+      return this.memorySessions.get(safeId);
     }
   }
 
   async saveSession(session) {
     try {
+      if (!(await this.waitForRedis())) {
+        throw new Error('Redis 未连接');
+      }
       const sessionData = JSON.stringify(session.toJSON());
       await this.redisClient.set(
-        `session:${session.sessionId}`,
+        this.sessionKey(session.sessionId),
         sessionData,
         { EX: 3600 } // 1小时过期
       );
@@ -521,7 +610,10 @@ class SessionManager {
 
   async deleteSession(sessionId) {
     try {
-      await this.redisClient.del(`session:${sessionId}`);
+      if (!(await this.waitForRedis())) {
+        throw new Error('Redis 未连接');
+      }
+      await this.redisClient.del(this.sessionKey(sessionId));
     } catch (error) {
       console.error('Error deleting session:', error);
       // 降级到内存存储
@@ -561,6 +653,7 @@ class SessionManager {
   }
 
   async close() {
+    this.stopCleanupTimer();
     try {
       await this.redisClient.quit();
     } catch (error) {

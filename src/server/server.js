@@ -2,7 +2,79 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const debug = require('../utils/debug');
+const logger = require('../utils/logger');
 const { getMapApiKey, getDefaultIpLocation } = require('../config/config');
+const {
+  issueSessionId,
+  resolveSessionId,
+  verifySessionId,
+} = require('../utils/sessionToken');
+const { sanitizeUserInput } = require('../utils/inputGuard');
+
+// 请求体大小上限：避免超大 payload 打爆进程内存
+const MAX_BODY_BYTES = 64 * 1024;
+// 限流窗口与阈值（单 IP）：/api/* 每次调用都可能触发 LLM/地图 API，必须限频
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX = 60;
+const rateBuckets = new Map();
+
+function clientIp(req) {
+  const raw =
+    req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
+  return String(raw)
+    .split(',')[0]
+    .trim();
+}
+
+// 固定窗口限流；顺带清理过期桶，避免 Map 无界增长
+function isRateLimited(req) {
+  const now = Date.now();
+  const ip = clientIp(req);
+  const bucket = rateBuckets.get(ip);
+  if (!bucket || now - bucket.start >= RATE_LIMIT_WINDOW_MS) {
+    if (rateBuckets.size > 5000) {
+      for (const [key, value] of rateBuckets) {
+        if (now - value.start >= RATE_LIMIT_WINDOW_MS) {
+          rateBuckets.delete(key);
+        }
+      }
+    }
+    rateBuckets.set(ip, { start: now, count: 1 });
+    return false;
+  }
+  bucket.count += 1;
+  return bucket.count > RATE_LIMIT_MAX;
+}
+
+// 统一读取请求体：带大小上限与错误监听，超限直接 413 并销毁请求
+function readJsonBody(req, res, handler) {
+  let body = '';
+  let settled = false;
+  req.on('data', chunk => {
+    if (settled) {
+      return;
+    }
+    body += chunk.toString();
+    if (Buffer.byteLength(body) > MAX_BODY_BYTES) {
+      settled = true;
+      res.writeHead(413, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: '请求体过大' }));
+      req.destroy();
+    }
+  });
+  req.on('error', () => {
+    if (!settled) {
+      settled = true;
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: '请求读取失败' }));
+    }
+  });
+  req.on('end', () => {
+    if (!settled) {
+      handler(body);
+    }
+  });
+}
 
 // 简单的IP定位服务
 class IpLocationService {
@@ -21,6 +93,13 @@ const multiTurnAssistant = new MultiTurnTravelAssistant();
 
 // 创建HTTP服务器
 const server = http.createServer((req, res) => {
+  // 统一限流：/api/* 每次调用都可能触发 LLM/地图 API，必须限制单 IP 频率
+  if (req.url.startsWith('/api/') && isRateLimited(req)) {
+    res.writeHead(429, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: '请求过于频繁，请稍后再试' }));
+    return;
+  }
+
   // 处理IP定位请求
   if (req.url === '/api/ip-location') {
     // 获取客户端IP
@@ -41,11 +120,7 @@ const server = http.createServer((req, res) => {
   
   // 处理路线规划请求
   if (req.url === '/api/plan-route' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => {
-      body += chunk.toString();
-    });
-    req.on('end', async () => {
+    readJsonBody(req, res, async body => {
       try {
         const { origin, destination } = JSON.parse(body);
         debug.log('路线规划请求:', origin, '→', destination);
@@ -71,11 +146,7 @@ const server = http.createServer((req, res) => {
 
   // 处理意图识别请求
   if (req.url === '/api/process-input' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => {
-      body += chunk.toString();
-    });
-    req.on('end', async () => {
+    readJsonBody(req, res, async body => {
       try {
         const { input } = JSON.parse(body);
         debug.log('意图识别请求:', input);
@@ -99,20 +170,30 @@ const server = http.createServer((req, res) => {
     return;
   }
   
+  // 由服务端签发会话ID，避免客户端自行指定导致会话被枚举/冒用
+  if (req.url === '/api/session' && (req.method === 'POST' || req.method === 'GET')) {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true, sessionId: issueSessionId() }));
+    return;
+  }
+
   // 更新会话中的当前位置
   if (req.url === '/api/update-location' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => {
-      body += chunk.toString();
-    });
-    req.on('end', () => {
+    readJsonBody(req, res, async body => {
       try {
         const { sessionId, location, lat, lng } = JSON.parse(body);
-        debug.log('更新位置请求:', location, 'lat:', lat, 'lng:', lng, 'sessionId:', sessionId);
+        // 只接受服务端签发的会话ID
+        const internalId = verifySessionId(sessionId);
+        if (!internalId) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: '无效的会话ID' }));
+          return;
+        }
+        debug.log('更新位置请求:', location, 'lat:', lat, 'lng:', lng);
         
         // 获取会话并更新当前位置
-        if (sessionId && multiTurnAssistant.sessionManager) {
-          const session = multiTurnAssistant.sessionManager.getSession(sessionId);
+        if (multiTurnAssistant.sessionManager) {
+          const session = await multiTurnAssistant.sessionManager.getSession(internalId);
           if (session) {
             session.currentLocation = location;
             // 保存坐标
@@ -141,11 +222,7 @@ const server = http.createServer((req, res) => {
   
   // 逆地理编码接口（使用周边搜索获取最近地标）
   if (req.url === '/api/reverse-geocode' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => {
-      body += chunk.toString();
-    });
-    req.on('end', async () => {
+    readJsonBody(req, res, async body => {
       try {
         const { latitude, longitude } = JSON.parse(body);
         debug.log('逆地理编码请求:', latitude, longitude);
@@ -191,21 +268,22 @@ const server = http.createServer((req, res) => {
   
   // 处理聊天请求（使用MultiTurnTravelAssistant）
   if (req.url === '/api/chat' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => {
-      body += chunk.toString();
-    });
-    req.on('end', async () => {
+    readJsonBody(req, res, async body => {
       try {
         const { message, sessionId } = JSON.parse(body);
-        debug.log('聊天请求:', message, 'sessionId:', sessionId);
+        // 会话ID必须经服务端签名校验，非法则分配新会话，防止枚举/冒用他人会话
+        const { internalId, token, isNew } = resolveSessionId(sessionId);
+        if (isNew) {
+          console.warn('[安全] 收到无效会话ID，已为该请求分配新会话');
+        }
+        debug.log('聊天请求:', sanitizeUserInput(message, 100));
         
         // 使用MultiTurnTravelAssistant处理用户输入
-        const result = await multiTurnAssistant.processUserInput(message, sessionId);
+        const result = await multiTurnAssistant.processUserInput(message, internalId);
         
-        // 返回聊天结果
+        // 返回聊天结果（回传会话ID，便于客户端同步服务端签发的会话）
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(result));
+        res.end(JSON.stringify({ ...result, sessionId: token }));
       } catch (error) {
         console.error('聊天处理错误:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -219,9 +297,39 @@ const server = http.createServer((req, res) => {
   }
   
   // 处理静态文件请求
-  let filePath = '.' + req.url;
-  if (filePath === './') {
-    filePath = './index.html';
+  // 静态文件根目录锁定为项目根目录，任何跳出该目录的请求都回落到 404
+  const staticRoot = path.resolve(__dirname, '..', '..');
+  let requestedPath = req.url.split('?')[0];
+  try {
+    requestedPath = decodeURIComponent(requestedPath);
+  } catch (error) {
+    requestedPath = req.url.split('?')[0];
+  }
+  if (requestedPath === '/' || requestedPath === '') {
+    requestedPath = '/index.html';
+  }
+
+  let filePath = path.resolve(
+    staticRoot,
+    '.' + path.posix.normalize(requestedPath)
+  );
+  // 防止路径遍历：normalize 后仍跳出静态根目录时返回 404 页面
+  const relativePath = path.relative(staticRoot, filePath);
+  const isInsideRoot =
+    filePath === staticRoot ||
+    (relativePath !== '' &&
+      !relativePath.startsWith('..') &&
+      !path.isAbsolute(relativePath));
+  // 拒绝暴露项目内部文件：隐藏文件（.env/.git 等）与后端源码、依赖、数据目录
+  const segments = relativePath.split(path.sep).filter(Boolean);
+  const blockedDirs = ['node_modules', 'volumes', 'src', 'test', 'data'];
+  const firstSegment = segments[0] || '';
+  const isHidden = segments.some(seg => seg.startsWith('.'));
+  const isBlocked =
+    isHidden || blockedDirs.includes(firstSegment) || firstSegment === '';
+
+  if (!isInsideRoot || isBlocked) {
+    filePath = path.join(staticRoot, '404.html');
   }
   
   const extname = String(path.extname(filePath)).toLowerCase();
@@ -248,7 +356,7 @@ const server = http.createServer((req, res) => {
   fs.readFile(filePath, (error, content) => {
     if (error) {
       if (error.code == 'ENOENT') {
-        fs.readFile('./404.html', (error, content) => {
+        fs.readFile(path.join(staticRoot, '404.html'), (error, content) => {
           res.writeHead(404, { 'Content-Type': 'text/html' });
           res.end(content, 'utf-8');
         });
@@ -268,5 +376,41 @@ const server = http.createServer((req, res) => {
 const env = require('../config/env');
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`服务器运行在 http://0.0.0.0:${PORT}`);
+  logger.info(`服务器运行在 http://0.0.0.0:${PORT} 日志级别=${logger.currentLevel()}`);
+});
+
+// 优雅关闭：停止清理定时器并释放 Redis 连接，否则进程无法自然退出
+function shutdown(signal, exitCode = 0) {
+  let closed = false;
+  const finish = () => {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    process.exit(exitCode);
+  };
+  logger.info(`收到 ${signal}，正在关闭服务器...`);
+  server.close(() => {
+    multiTurnAssistant.sessionManager
+      .close()
+      .catch(() => {})
+      .finally(finish);
+  });
+  // 兜底：连接迟迟不释放时强制退出
+  setTimeout(finish, 5000).unref();
+}
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+// 未捕获异常：先落日志再退出，避免容器静默重启后无从排查
+process.on('uncaughtException', error => {
+  logger.error('未捕获异常，进程即将退出:', error);
+  shutdown('uncaughtException', 1);
+});
+// 未处理的 Promise 拒绝通常不致命：记录后继续提供服务
+process.on('unhandledRejection', reason => {
+  logger.error(
+    '未处理的 Promise 拒绝:',
+    reason instanceof Error ? reason : new Error(String(reason))
+  );
 });

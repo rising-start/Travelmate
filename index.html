@@ -1001,7 +1001,38 @@
     </div>
 
     <script>
-        let sessionId = 'web-session-' + Date.now();
+        let sessionId = null;            // 由服务端签发（防止客户端自行指定/枚举会话）
+        let sessionIdPromise = null;
+
+        // 会话ID统一向服务端申请；force=true 时申请新会话
+        async function ensureSessionId(force = false) {
+            if (force) {
+                sessionId = null;
+                sessionIdPromise = null;
+            }
+            if (sessionId) {
+                return sessionId;
+            }
+            if (!sessionIdPromise) {
+                sessionIdPromise = (async () => {
+                    try {
+                        const response = await fetch('/api/session', { method: 'POST' });
+                        const data = await response.json();
+                        if (data && data.sessionId) {
+                            return data.sessionId;
+                        }
+                    } catch (error) {
+                        console.error('获取会话ID失败:', error);
+                    }
+                    return null;
+                })();
+            }
+            const issued = await sessionIdPromise;
+            if (issued) {
+                sessionId = issued;
+            }
+            return sessionId;
+        }
         let isTyping = false;
         let waitingFor = null;       // 正在等待什么：'origin', 'destination', 'both'
         let pendingOrigin = null;   // 临时保存已提供的起点
@@ -1095,7 +1126,7 @@
                     },
                     body: JSON.stringify({
                         message: message,
-                        sessionId: sessionId
+                        sessionId: await ensureSessionId()
                     })
                 });
 
@@ -1104,6 +1135,8 @@
                 }
 
                 const result = await response.json();
+                // 同步服务端签发的会话ID
+                if (result && result.sessionId) { sessionId = result.sessionId; }
 
                 // 隐藏正在输入
                 hideTypingIndicator();
@@ -1184,7 +1217,7 @@
                     },
                     body: JSON.stringify({
                         message: message,
-                        sessionId: sessionId
+                        sessionId: await ensureSessionId()
                     })
                 });
 
@@ -1193,6 +1226,8 @@
                 }
 
                 const result = await response.json();
+                // 同步服务端签发的会话ID
+                if (result && result.sessionId) { sessionId = result.sessionId; }
 
                 // 隐藏正在输入
                 hideTypingIndicator();
@@ -1368,12 +1403,13 @@
         }
 
         // 重置对话
-        function clearChat() {
+        async function clearChat() {
             const chatMessages = document.getElementById('chat-messages');
             chatMessages.innerHTML = '';
 
-            // 生成新的会话ID
-            sessionId = 'web-session-' + Date.now();
+            // 向服务端申请新的会话ID
+            sessionId = null;
+            ensureSessionId(true);
 
             // 清除等待状态
             clearWaitingState();
@@ -1457,7 +1493,7 @@
                     },
                     body: JSON.stringify({
                         location: location,
-                        sessionId: sessionId
+                        sessionId: await ensureSessionId()
                     })
                 });
             } catch (error) {
@@ -1583,16 +1619,15 @@
         }
 
         // 创建新会话
-        function createNewSession() {
-            // 生成新的会话ID
-            const newSessionId = 'web-session-' + Date.now();
+        async function createNewSession() {
             // 清空当前聊天
             const chatMessages = document.getElementById('chat-messages');
             chatMessages.innerHTML = '';
             // 添加欢迎消息
             addMessage('你好！我是你的旅行助手，有什么可以帮你的吗？', 'assistant');
-            // 更新会话ID
-            sessionId = newSessionId;
+            // 向服务端申请新的会话ID
+            sessionId = null;
+            await ensureSessionId(true);
             // 清除等待状态
             clearWaitingState();
             // 重置临时变量
@@ -2296,7 +2331,7 @@
                 await fetch('/api/update-location', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ sessionId, location, lat, lng })
+                    body: JSON.stringify({ sessionId: await ensureSessionId(), location, lat, lng })
                 });
             } catch (error) {
                 console.error('更新位置失败:', error);
@@ -2341,6 +2376,8 @@
         window.onload = function() {
             initCurrentLocation();
             initTheme();
+            // 预取服务端签发的会话ID
+            ensureSessionId();
         };
 
         // 初始化主题
