@@ -29,11 +29,19 @@ class TravelAssistant {
     return { origin: null, destination: null };
   }
 
-  // 必须同时解析出起点与终点才算路线请求：
-  // 只按关键词判断会把"附近有地铁站吗"这类 POI 问题误吞成路线请求
+  // 必须同时解析出起点与终点，且形如"从X到Y"或带路线关键词才算路线请求：
+  // 只按"到/去"切分会把"我想去北京玩"这类句子误吞成路线请求
   isRouteRequest(input) {
     const { origin, destination } = this.parseRouteEndpoints(input);
-    return Boolean(origin && destination);
+    if (!origin || !destination) {
+      return false;
+    }
+    const text = typeof input === 'string' ? input : '';
+    const hasFromPattern = /从\s*.+?\s*(?:到|去)/.test(text);
+    const hasRouteKeyword = /怎么走|怎么去|出行方案|路线|乘车|驾车|公交|地铁/.test(
+      text
+    );
+    return hasFromPattern || hasRouteKeyword;
   }
 
   async planRoute(origin, destination) {

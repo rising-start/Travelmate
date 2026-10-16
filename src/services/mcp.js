@@ -109,12 +109,16 @@ class MCP {
 
     try {
       // 同一地址短时间内直接复用结果，避免重复打高德
-      const cached = this.geocodeCache.get(cleanedAddress);
+      // key 带上城市上下文，避免"白云山"这类重名地点跨城合并
+      const cacheKey = `${cleanedAddress}|${this.extractCityName(
+        cleanedAddress
+      )}`;
+      const cached = this.geocodeCache.get(cacheKey);
       if (cached) {
         if (cached.expiresAt > Date.now()) {
           return cached.value;
         }
-        this.geocodeCache.delete(cleanedAddress);
+        this.geocodeCache.delete(cacheKey);
       }
 
       // 尝试多种地址格式
@@ -144,7 +148,7 @@ class MCP {
               latitude: parseFloat(location[1]),
               adcode: result.geocodes[0].adcode,
             };
-            this.rememberGeocode(cleanedAddress, geo);
+            this.rememberGeocode(cacheKey, geo);
             return geo;
           }
         } catch (error) {
@@ -158,12 +162,12 @@ class MCP {
 
       // 所有变体都失败，尝试使用城市名称进行地理编码
       const fallback = await this.geocodeByCity(cleanedAddress);
-      this.rememberGeocode(cleanedAddress, fallback);
+      this.rememberGeocode(cacheKey, fallback);
       return fallback;
     } catch (error) {
       // 兜底走城市名查询，同样写缓存：否则持续失败的地址每次请求都会再打一次接口
       const fallback = await this.geocodeByCity(cleanedAddress);
-      this.rememberGeocode(cleanedAddress, fallback);
+      this.rememberGeocode(cacheKey, fallback);
       return fallback;
     }
   }

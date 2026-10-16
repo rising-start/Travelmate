@@ -49,9 +49,11 @@ describe('MCP.geocode 请求治理', () => {
 
   it('should stop at first successful variant', async () => {
     const spy = jest.spyOn(mcp, 'httpGet').mockResolvedValue(OK_RESPONSE);
+    const variants = mcp.generateAddressVariations('广州白云山风景名胜区');
 
     await mcp.geocode('广州白云山风景名胜区');
 
+    expect(variants.length).toBeLessThanOrEqual(3);
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
