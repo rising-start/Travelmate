@@ -2,6 +2,7 @@ const https = require('https');
 const env = require('./env');
 
 const DEBUG = env.DEBUG;
+const LOG_LEVEL = env.LOG_LEVEL;
 
 const DEFAULT_API_KEY = env.MAP_API_KEY;
 const WEATHER_API_KEY = env.WEATHER_API_KEY;
@@ -542,6 +543,7 @@ function getSiliconFlowApiKey() {
 
 module.exports = {
   DEBUG,
+  LOG_LEVEL,
   DEFAULT_API_KEY,
   WEATHER_API_KEY,
   LLM_API_KEY,

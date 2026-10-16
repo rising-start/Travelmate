@@ -60,7 +60,8 @@
 │   │   ├── SkillManager.js # 技能管理
 │   │   └── WeatherSkill.js # 天气查询技能
 │   ├── utils/           # 工具模块
-│   │   └── debug.js     # 调试工具
+│   │   ├── logger.js    # 分级日志（error/warn/info/debug，含脱敏）
+│   │   └── debug.js     # 调试工具（已转为 logger 兼容层）
 │   ├── config/          # 配置模块
 │   │   ├── config.js    # 配置信息
 │   │   └── env.js        # 环境配置
@@ -119,6 +120,9 @@ PORT=3001
 
 # 调试模式
 DEBUG=false
+
+# 日志级别：silent/error/warn/info/debug，缺省 info（DEBUG=true 时等价 debug）
+LOG_LEVEL=info
 ```
 
 ### 运行开发模式
@@ -253,7 +257,8 @@ main();
 - `LLM_API_KEY`：LLM API密钥
 - `SILICON_FLOW_API_KEY`：Silicon Flow API密钥
 - `PORT`：服务器端口
-- `DEBUG`：调试模式
+- `DEBUG`：调试模式，置为 `true` 时等价 `LOG_LEVEL=debug`
+- `LOG_LEVEL`：日志级别（`silent`/`error`/`warn`/`info`/`debug`，缺省 `info`）。`error`、`warn` 输出到 stderr 且不受 `DEBUG` 影响；`key`/`token`/`secret` 等敏感字段自动脱敏
 
 ## 技术栈
 
