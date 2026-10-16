@@ -11,6 +11,11 @@ const {
   buildContextAwarePrompt,
 } = require('../session/dialogManager');
 const SkillManager = require('../skills/SkillManager');
+const {
+  sanitizeUserInput,
+  isValidInstruction,
+  sanitizeInstructionParams,
+} = require('../utils/inputGuard');
 
 /**
  * MultiTurnTravelAssistant - 多轮旅行助手核心类
@@ -37,6 +42,15 @@ class MultiTurnTravelAssistant {
    */
   async processUserInput(userInput, sessionId = 'default') {
     const startTime = Date.now();
+    // 入口防御：输入统一收敛为受控长度的字符串，避免畸形 payload 打穿后续逻辑
+    userInput = sanitizeUserInput(userInput, 1000);
+    if (!userInput) {
+      return {
+        thought: '空输入',
+        answer: '请输入您想查询的内容哦～',
+        success: true,
+      };
+    }
     try {
       const session = await this.sessionManager.getSession(sessionId);
       session.updateTimestamp();
@@ -154,8 +168,18 @@ class MultiTurnTravelAssistant {
             instruction = JSON.parse(instruction);
           }
 
+          // LLM 输出不可信：校验结构与技能白名单，防止伪造指令驱动下游 Skill
+          if (!isValidInstruction(instruction)) {
+            console.warn(
+              '[安全] LLM 返回非法指令结构，已丢弃:',
+              JSON.stringify(instruction).slice(0, 200)
+            );
+            throw new Error('非法指令结构');
+          }
+          instruction.params = sanitizeInstructionParams(instruction.params);
+
           // 保存原始消息到 instruction 对象中，供 Skill 使用
-          instruction._originalMessage = userInput;
+          instruction._originalMessage = sanitizeUserInput(userInput);
 
           response = await this.executeInstruction(instruction, session);
 
@@ -606,7 +630,9 @@ class MultiTurnTravelAssistant {
         answer: '好的，正在为您规划最佳路线...',
       };
     } else if (intentResult.intent === INTENT_TYPES.NEGATE) {
-      session.reset();
+      // reset 是 async，必须 await 并落库，否则内存态与 Redis 不一致
+      await session.reset();
+      await this.sessionManager.saveSession(session);
       return {
         thought: '用户取消，重新开始',
         answer: '好的，我们重新开始。请告诉我您想去哪里？',
@@ -687,111 +713,6 @@ class MultiTurnTravelAssistant {
 
     return await this.skillManager.executeSkill(selected_skill, enrichedParams, session);
   }
-
-
-
-
-
-
-
-  async GeneralInfoSkill(params, session) {
-    const { question, location } = params;
-
-    if (!location) {
-      return {
-        thought: '缺少地点信息',
-        answer: '请问您想了解哪个地点的信息？',
-      };
-    }
-
-    const geo = await this.mcp.geocode(location);
-    if (!geo) {
-      return {
-        thought: '地理编码失败',
-        answer: `抱歉，无法找到"${location}"的位置信息。`,
-      };
-    }
-
-    return {
-      thought: '通用信息查询',
-      answer: `关于${location}，${question || '我不太清楚具体信息'}。\n\n建议您：\n1. 查看官方网站获取最新信息\n2. 拨打当地旅游信息中心咨询\n3. 使用地图应用查看详情`,
-    };
-  }
-
-  async AskUserSkill(params, session) {
-    const { question, missing_field } = params;
-
-    if (missing_field) {
-      session.pendingField = missing_field;
-    }
-
-    return {
-      thought: '询问用户',
-      answer: question || '请问您能提供更多信息吗？',
-    };
-  }
-
-  async ShowMoreSkill(params, session) {
-    const lastPoiResults = session.getLastPoiResults();
-    const currentIndex = session.getLastPoiIndex();
-
-    if (!lastPoiResults || lastPoiResults.length === 0) {
-      return {
-        thought: '没有历史搜索结果',
-        answer: '抱歉，没有更多结果了。请先搜索一个地点。',
-      };
-    }
-
-    if (lastPoiResults.length <= currentIndex) {
-      return {
-        thought: '没有更多结果',
-        answer: '抱歉，没有更多结果了。',
-      };
-    }
-
-    const nextResults = lastPoiResults.slice(currentIndex, currentIndex + 5);
-    session.setLastPoiIndex(currentIndex + nextResults.length);
-
-    if (nextResults.length === 0) {
-      return {
-        thought: '没有更多结果',
-        answer: '抱歉，没有更多结果了。',
-      };
-    }
-
-    let answer = '更多结果：\n\n';
-    nextResults.forEach((poi, index) => {
-      answer += `${currentIndex + index + 1}. ${poi.name}（距离${poi.distance}米）\n`;
-      if (poi.address) answer += `   地址：${poi.address}\n`;
-      if (poi.tel) answer += `   电话：${poi.tel}\n`;
-      answer += '\n';
-    });
-    answer += '还有更多需要帮助的吗？';
-
-    // 获取搜索中心点和关键词
-    const center = session.getLastSearchedLocation();
-    const keywords = session.getLastPoiKeywords();
-
-    return {
-      thought: `ShowMoreSkill: 显示第${currentIndex + 1}到${currentIndex + nextResults.length}个结果`,
-      answer: answer,
-      data: {
-        type: 'poi',
-        center: center,
-        keywords: keywords,
-        results: nextResults.map((poi) => ({
-          name: poi.name,
-          distance: poi.distance,
-          address: poi.address,
-          tel: poi.tel,
-          type: poi.type,
-          lng: poi.location?.longitude,
-          lat: poi.location?.latitude,
-        })),
-      },
-    };
-  }
-
   // 解析起点和终点
   parseOriginAndDestination(message) {
     const result = { origin: null, destination: null };
@@ -838,182 +759,6 @@ class MultiTurnTravelAssistant {
     };
 
     return await this.handlePoiSearch(session, center, poiSearch);
-  }
-
-  // 处理路线规划
-  async handlePlanRoute(params, session) {
-    let { origin, destination } = params;
-
-    if (!origin || !destination) {
-      return {
-        thought: '缺少路线信息',
-        answer: '请问您从哪里出发，要去哪里？',
-      };
-    }
-
-    // 清洗起点和终点名称，移除"怎么走？"、"路线"等后缀
-    const cleanOrigin = origin
-      .replace(/[？?]\s*$/, '')
-      .replace(/怎么走.*$/, '')
-      .replace(/路线.*$/, '')
-      .replace(/从\s*/, '')
-      .trim();
-    const cleanDestination = destination
-      .replace(/[？?]\s*$/, '')
-      .replace(/怎么走.*$/, '')
-      .replace(/路线.*$/, '')
-      .replace(/到\s*/, '')
-      .replace(/去\s*/, '')
-      .trim();
-
-    const geoOrigin = await this.mcp.geocode(cleanOrigin);
-    const geoDest = await this.mcp.geocode(cleanDestination);
-
-    console.log('GeoDest:', geoDest);
-    console.log(
-      'dest_coord:',
-      geoDest ? geoDest.longitude : 'undefined',
-      geoDest ? geoDest.latitude : 'undefined'
-    );
-
-    if (!geoOrigin || !geoDest) {
-      return {
-        thought: '地理编码失败',
-        answer: '抱歉，无法获取起点或终点的位置信息，请检查地址是否正确。',
-      };
-    }
-
-    const directions = await this.mcp.getDirections(
-      cleanOrigin,
-      cleanDestination
-    );
-
-    let answer = `从${cleanOrigin}到${cleanDestination}的出行方案：\n\n`;
-
-    directions.forEach((scheme, index) => {
-      const isRecommended = index === 0;
-
-      answer += `${index + 1}. ${scheme.type}${isRecommended ? ' ⭐推荐' : ''}\n`;
-
-      if (scheme.recommendedReason && isRecommended) {
-        answer += `   推荐理由: ${scheme.recommendedReason}\n`;
-      }
-
-      answer += `   ⏱️ 预计时间: ${scheme.duration}\n`;
-      answer += `   💰 预计费用: ${scheme.cost}\n`;
-      answer += `   📍 距离: ${this.formatDistance(scheme.distance)}\n`;
-
-      if (scheme.timeBreakdown) {
-        const timeBreakdownText = Array.isArray(scheme.timeBreakdown)
-          ? scheme.timeBreakdown.join(' + ')
-          : scheme.timeBreakdown;
-        answer += `   🚶 时间构成: ${timeBreakdownText}\n`;
-      }
-
-      if (scheme.metroLines) {
-        const metroLinesText = Array.isArray(scheme.metroLines)
-          ? scheme.metroLines.join('、')
-          : scheme.metroLines;
-        answer += `   🚇 途经地铁: ${metroLinesText}\n`;
-      }
-
-      if (scheme.transfers && scheme.transfers.length > 0) {
-        const transfersText = Array.isArray(scheme.transfers)
-          ? scheme.transfers.join(' -> ')
-          : scheme.transfers;
-        answer += `   🛤️ 详细换乘: ${transfersText}\n`;
-      }
-
-      answer += '\n';
-    });
-
-    // 更新会话信息
-    session.updateLastOrigin(cleanOrigin);
-    session.updateLastDestination(cleanDestination);
-    session.addToLocationHistory(cleanOrigin, 'origin');
-    session.addToLocationHistory(cleanDestination, 'destination');
-
-    // 生成自然语言路线建议（亲切、带表情）
-    const naturalRouteAdvice = this.generateNaturalRouteAdvice(
-      directions,
-      cleanOrigin,
-      cleanDestination
-    );
-
-    // 构建结构化响应
-    const structuredResponse = {
-      type: 'route',
-      origin: cleanOrigin,
-      destination: cleanDestination,
-      schemes: directions.map((scheme, index) => ({
-        type: scheme.type,
-        duration: scheme.duration,
-        cost: scheme.cost,
-        distance: this.formatDistance(scheme.distance),
-        steps: scheme.transfers || [],
-        structuredSteps: scheme.structuredSteps || [],
-        metro_lines: scheme.metroLines || [],
-        recommendation_reason:
-          index === 0 ? scheme.recommendedReason : undefined,
-        time_breakdown: scheme.timeBreakdown,
-        dest_coord: {
-          lng: geoDest.longitude,
-          lat: geoDest.latitude,
-        },
-      })),
-      recommended_index: 0,
-      natural_advice: naturalRouteAdvice,
-    };
-
-    // 同时保持原有文本格式作为 fallback
-    answer = `从${cleanOrigin}到${cleanDestination}的出行方案：\n\n`;
-
-    directions.forEach((scheme, index) => {
-      const isRecommended = index === 0;
-
-      answer += `${index + 1}. ${scheme.type}${isRecommended ? ' ⭐推荐' : ''}\n`;
-
-      if (scheme.recommendedReason && isRecommended) {
-        answer += `   推荐理由: ${scheme.recommendedReason}\n`;
-      }
-
-      answer += `   ⏱️ 预计时间: ${scheme.duration}\n`;
-      answer += `   💰 预计费用: ${scheme.cost}\n`;
-      answer += `   📍 距离: ${this.formatDistance(scheme.distance)}\n`;
-
-      if (scheme.timeBreakdown) {
-        const timeBreakdownText = Array.isArray(scheme.timeBreakdown)
-          ? scheme.timeBreakdown.join(' + ')
-          : scheme.timeBreakdown;
-        answer += `   🚶 时间构成: ${timeBreakdownText}\n`;
-      }
-
-      if (scheme.metroLines) {
-        const metroLinesText = Array.isArray(scheme.metroLines)
-          ? scheme.metroLines.join('、')
-          : scheme.metroLines;
-        answer += `   🚇 途经地铁: ${metroLinesText}\n`;
-      }
-
-      if (scheme.transfers && scheme.transfers.length > 0) {
-        const transfersText = Array.isArray(scheme.transfers)
-          ? scheme.transfers.join(' -> ')
-          : scheme.transfers;
-        answer += `   🛤️ 详细换乘: ${transfersText}\n`;
-      }
-
-      answer += '\n';
-    });
-
-    if (naturalRouteAdvice) {
-      answer += '\n💡 ' + naturalRouteAdvice;
-    }
-
-    return {
-      thought: '路线规划完成',
-      answer: answer,
-      data: structuredResponse,
-    };
   }
 
   // 生成自然语言路线建议（亲切、带表情）
