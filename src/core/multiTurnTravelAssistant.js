@@ -200,7 +200,33 @@ class MultiTurnTravelAssistant {
         }
       }
 
-      // 2. LLM失败，尝试localReact
+      // 2. LLM解析失败：若是路线需求，交给 RouteSkill（路线规划的唯一实现）
+      if (this.isRouteRequest(userInput)) {
+        const endpoints = this.parseOriginAndDestination(userInput);
+        try {
+          const routeResult = await this.skillManager.executeSkill(
+            'RouteSkill',
+            {
+              origin: endpoints.origin,
+              destination: endpoints.destination,
+              originalMessage: userInput,
+            },
+            session
+          );
+          // 只有真正规划出结果才返回，追问（needs_user_input）继续走后面的兜底
+          if (routeResult && routeResult.answer && !routeResult.needs_user_input) {
+            const elapsed = Date.now() - startTime;
+            console.log(`[响应时间] 路线兜底(RouteSkill): ${elapsed}ms`);
+            await session.addToHistory(userInput, routeResult.answer);
+            await this.sessionManager.saveSession(session);
+            return { ...routeResult, responseTime: elapsed };
+          }
+        } catch (error) {
+          console.error('RouteSkill 兜底失败:', error);
+        }
+      }
+
+      // 3. 尝试localReact
       const localResult = await this.llm.localReact(userInput, {
         geocode: async (address) => {
           return await this.mcp.geocode(address);
@@ -273,7 +299,7 @@ class MultiTurnTravelAssistant {
         };
       }
 
-      // 3. 最后用简化的fallback
+      // 4. 最后用简化的fallback
       const quickFallbackResult = this.fallbackIntentParsing(
         userInput,
         session
@@ -713,6 +739,13 @@ class MultiTurnTravelAssistant {
 
     return await this.skillManager.executeSkill(selected_skill, enrichedParams, session);
   }
+  // 是否像路线请求（用于 LLM 解析失败后的兜底判断）：
+  // 必须同时解析出起点与终点，避免把"附近有地铁站吗"这类 POI 问题截断成路线追问
+  isRouteRequest(message) {
+    const { origin, destination } = this.parseOriginAndDestination(message);
+    return Boolean(origin && destination);
+  }
+
   // 解析起点和终点
   parseOriginAndDestination(message) {
     const result = { origin: null, destination: null };

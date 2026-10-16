@@ -4,12 +4,36 @@ const WeatherAdvice = require('../services/weatherAdvice');
 const LLMService = require('../services/llm');
 const debug = require('../utils/debug');
 const { getScoreWeights } = require('../config/config');
+const RouteSkill = require('../skills/RouteSkill');
+const { ConversationSession } = require('../session/conversationSession');
 
 class TravelAssistant {
   constructor() {
     this.mcp = new MCP();
     this.weatherService = new WeatherService();
     this.llmService = new LLMService();
+    this.routeSkill = new RouteSkill(this.mcp, this.weatherService);
+  }
+
+  // 从"从 X 到 Y"这类输入里取起点与终点，取不到时返回 null
+  parseRouteEndpoints(input) {
+    const text = typeof input === 'string' ? input : '';
+    const fromMatch = text.match(/从\s*(.+?)\s*(?:到|去)\s*(.+)/);
+    if (fromMatch) {
+      return { origin: fromMatch[1].trim(), destination: fromMatch[2].trim() };
+    }
+    const plainMatch = text.match(/^(.+?)\s*(?:到|去)\s*(.+)$/);
+    if (plainMatch) {
+      return { origin: plainMatch[1].trim(), destination: plainMatch[2].trim() };
+    }
+    return { origin: null, destination: null };
+  }
+
+  // 必须同时解析出起点与终点才算路线请求：
+  // 只按关键词判断会把"附近有地铁站吗"这类 POI 问题误吞成路线请求
+  isRouteRequest(input) {
+    const { origin, destination } = this.parseRouteEndpoints(input);
+    return Boolean(origin && destination);
   }
 
   async planRoute(origin, destination) {
@@ -30,26 +54,24 @@ class TravelAssistant {
       const destWeather = await this.weatherService.getWeatherByCityName(destination);
 
       // 3. 规划路线
-      const drivingRoute = await this.mcp.getDirections(
+      // getDirections 签名为 (originAddress, destinationAddress, originCoord, destCoord)，
+      // 旧代码把坐标对象当地址传入、把 'car'/'walk' 当 coord，导致一律抛错返回 []。
+      // 该方法一次返回全部交通方式，这里按 type 字段分组。
+      const directions = await this.mcp.getDirections(
+        origin,
+        destination,
         geoOrigin,
-        geoDest,
-        'car'
+        geoDest
       );
-      const transitRoute = await this.mcp.getDirections(
-        geoOrigin,
-        geoDest,
-        'transit'
-      );
-      const walkingRoute = await this.mcp.getDirections(
-        geoOrigin,
-        geoDest,
-        'walk'
-      );
-      const cyclingRoute = await this.mcp.getDirections(
-        geoOrigin,
-        geoDest,
-        'ride'
-      );
+      const directionList = Array.isArray(directions) ? directions : [];
+      const pickFirst = type =>
+        directionList.find(item => item && item.type === type) || null;
+      const routes = {
+        driving: pickFirst('驾车'),
+        transit: directionList.filter(item => item && item.type === '公交'),
+        walking: pickFirst('步行'),
+        cycling: pickFirst('骑行')
+      };
 
       // 4. 生成天气建议
       const weatherAdvice = WeatherAdvice.getAdvice(originWeather, destWeather);
@@ -65,12 +87,7 @@ class TravelAssistant {
           name: destination,
           location: geoDest,
         },
-        routes: {
-          driving: drivingRoute,
-          transit: transitRoute,
-          walking: walkingRoute,
-          cycling: cyclingRoute,
-        },
+        routes,
         weather: {
           origin: originWeather,
           destination: destWeather,
@@ -90,6 +107,32 @@ class TravelAssistant {
 
   async processUserInput(input) {
     try {
+      // 路线请求统一交给 RouteSkill：llm.reactLoop 不再自己拼路线结果
+      if (this.isRouteRequest(input)) {
+        const { origin, destination } = this.parseRouteEndpoints(input);
+        const session = new ConversationSession(`process-${Date.now()}`);
+        try {
+          const routeResult = await this.routeSkill.handlePlanRoute(
+            { origin, destination, originalMessage: input },
+            session
+          );
+          // 只有真正拿到路线结果才返回，否则回落到 LLM 工具循环
+          if (
+            routeResult &&
+            routeResult.answer &&
+            !routeResult.needs_user_input
+          ) {
+            return {
+              success: true,
+              thought: routeResult.thought,
+              answer: routeResult.answer,
+            };
+          }
+        } catch (error) {
+          debug.error('RouteSkill 处理失败，回落到 reactLoop:', error);
+        }
+      }
+
       // 使用LLM处理用户输入
       const llmResult = await this.llmService.reactLoop(input, {
         geocode: this.mcp.geocode.bind(this.mcp),

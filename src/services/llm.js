@@ -13,6 +13,26 @@ const {
   getSystemPrompt,
   getWeatherAdvicePrompt,
 } = require('../config/config');
+const { sanitizeUserInput } = require('../utils/inputGuard');
+
+// LLM 请求超时（毫秒），可通过环境变量调整
+const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS) || 15000;
+// 系统提示词长度上限：原值 2000 会把输出格式规则与 Few-shot 直接切掉，
+// 导致模型返回不可解析的内容
+const MAX_SYSTEM_PROMPT_LENGTH = 20000;
+
+// 缓存命中时返回深拷贝：调用方会就地改写返回对象（如补 _originalMessage），
+// 直接返回缓存对象会污染后续所有命中
+function cloneCachedValue(value) {
+  if (value === null || typeof value !== 'object') {
+    return value;
+  }
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (error) {
+    return value;
+  }
+}
 
 class LLMService {
   constructor(apiKey) {
@@ -37,10 +57,18 @@ class LLMService {
       contextFingerprint = `${lastOrigin}|${lastDestination}|${lastSearched}|${lastMentioned}`;
     }
 
+    // 用户输入在进入提示词/缓存 key 之前先清洗，避免 forged 输入击穿提示词结构
+    const safeUserInput = sanitizeUserInput(userInput);
+
     const sessionId = session?.sessionId || 'default';
-    const cacheInput = `${userInput}|${contextFingerprint}|${sessionId}`;
+    const cacheInput = `${safeUserInput}|${contextFingerprint}|${sessionId}`;
     const inputHash = crypto.createHash('md5').update(cacheInput).digest('hex');
-    const cacheKey = `${inputHash}_${parseJson ? 'json' : 'text'}`;
+    // 缓存 key 必须包含提示词与模型指纹：否则不同技能/不同模型会串用同一份缓存
+    const promptHash = crypto
+      .createHash('md5')
+      .update(`${systemPrompt}|${getLlmModel()}`)
+      .digest('hex');
+    const cacheKey = `${inputHash}_${promptHash}_${parseJson ? 'json' : 'text'}`;
 
     // 检查缓存
     const cached = this.cache.get(cacheKey);
@@ -48,18 +76,21 @@ class LLMService {
       // 检查是否过期
       if (cached.expiresAt && cached.expiresAt > Date.now()) {
         console.log('LLM API请求命中缓存 (上下文相关)');
-        return cached.data;
+        return cloneCachedValue(cached.data);
       } else {
         // 缓存已过期，删除
         this.cache.delete(cacheKey);
       }
     }
 
-    // 2. 优化提示词（限制长度）
-    const optimizedSystemPrompt = systemPrompt.substring(0, 2000); // 限制系统提示词长度
+    // 2. 优化提示词（限制长度，但保留完整规则段）
+    const optimizedSystemPrompt = systemPrompt.substring(
+      0,
+      MAX_SYSTEM_PROMPT_LENGTH
+    );
 
     const maxRetries = 1; // 减少重试次数
-    const timeoutMs = 15000; // 15秒超时
+    const timeoutMs = LLM_TIMEOUT_MS; // 默认15秒超时
     const retryDelayMs = 500; // 0.5秒重试间隔
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -73,6 +104,15 @@ class LLMService {
           // 设置超时
           const timeout = setTimeout(() => {
             console.error('LLM API请求超时');
+            // 必须真正销毁底层 socket：否则连接会一直挂到响应结束（甚至永不关闭），
+            // 重试时又会新建连接，最终累积成 socket 句柄泄漏
+            try {
+              if (req && !req.destroyed) {
+                req.destroy();
+              }
+            } catch (destroyError) {
+              debug.log('销毁超时请求失败:', destroyError.message);
+            }
             resolve(null);
           }, timeoutMs);
 
@@ -80,7 +120,7 @@ class LLMService {
             model: getLlmModel(),
             messages: [
               { role: 'system', content: optimizedSystemPrompt },
-              { role: 'user', content: userInput },
+              { role: 'user', content: safeUserInput },
             ],
             temperature: 0.1,
           });
@@ -181,7 +221,7 @@ class LLMService {
           }
 
           // 判断是否是天气查询
-          const isWeatherQuery = /天气|气温|温度/.test(userInput);
+          const isWeatherQuery = /天气|气温|温度/.test(safeUserInput);
           const ttl = isWeatherQuery ? 60000 : 3600000; // 天气查询缓存1分钟，其他1小时
 
           // 存储时带上时间戳
@@ -202,6 +242,7 @@ class LLMService {
     return null;
   }
 
+  // 路线规划已统一由 src/skills/RouteSkill.js 负责，这里只保留兜底问答能力
   async reactLoop(userInput, tools) {
     try {
       const systemPrompt = getSystemPrompt();
@@ -780,6 +821,7 @@ class LLMService {
   }
 
   // 本地ReAct实现（降级方案）
+  // 路线规划已统一由 src/skills/RouteSkill.js 负责，这里只保留兜底问答能力
   async localReact(userInput, tools) {
     // 处理编码问题，确保中文文本能够被正确处理
     const input = String(userInput);
