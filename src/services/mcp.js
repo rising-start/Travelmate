@@ -12,50 +12,117 @@ const {
   PROVINCES,
 } = require('../config/config');
 
+const REQUEST_TIMEOUT = 10000; // 10 秒请求超时
+// 地址后缀（按长度降序，匹配时优先命中更具体的后缀）
+const ADDRESS_SUFFIXES = [
+  '风景名胜区',
+  '旅游度假区',
+  '地铁站',
+  '公交站',
+  '火车站',
+  '汽车站',
+  '停车场',
+  '图书馆',
+  '博物馆',
+  '体育馆',
+  '游泳馆',
+  '飞机场',
+  '植物园',
+  '动物园',
+  '风景区',
+  '旅游区',
+  '度假区',
+  '步行街',
+  '商业街',
+  '机场',
+  '公园',
+  '广场',
+  '大学',
+  '医院',
+  '景区',
+];
+// 单次地理编码最多尝试的地址变体数（原实现会随后缀表膨胀，把请求耗时拖到数十秒）
+const MAX_ADDRESS_VARIATIONS = 8;
+// 地理编码结果缓存：同一地址短时间内不重复打高德
+const GEOCODE_CACHE_TTL_MS = 5 * 60 * 1000;
+const GEOCODE_CACHE_MAX = 500;
+
 class MCP {
   constructor(apiKey) {
     this.apiKey = apiKey || getMapApiKey();
+    this.geocodeCache = new Map();
   }
 
-  // 通用 HTTP GET 请求方法
-  async httpGet(url) {
+  // 日志脱敏：避免把 key=xxx 完整落入日志
+  static maskApiKey(url) {
+    return String(url).replace(/([?&]key=)[^&\s]+/gi, '$1***');
+  }
+
+  // 通用 HTTP GET 请求方法（带超时、状态码校验与 socket 释放）
+  async httpGet(url, timeoutMs = REQUEST_TIMEOUT) {
     return new Promise((resolve, reject) => {
-      https
-        .get(url, (res) => {
-          let data = '';
-          res.on('data', (chunk) => {
-            data += chunk;
-          });
-          res.on('end', () => {
-            resolve(data);
-          });
-        })
-        .on('error', (error) => {
+      const req = https.get(url, res => {
+        // 4xx/5xx 直接失败，避免把错误页当数据交给调用方 JSON.parse
+        if (res.statusCode && res.statusCode >= 400) {
+          res.resume(); // 释放响应缓冲区
+          req.destroy();
+          reject(new Error(`HTTP ${res.statusCode}: ${MCP.maskApiKey(url)}`));
+          return;
+        }
+
+        const chunks = [];
+        res.on('data', chunk => {
+          chunks.push(chunk);
+        });
+        res.on('error', error => {
           reject(error);
         });
+        res.on('end', () => {
+          resolve(Buffer.concat(chunks).toString());
+        });
+      });
+
+      // 超时后必须销毁请求，否则 socket 会一直挂着导致句柄泄漏
+      req.setTimeout(timeoutMs, () => {
+        req.destroy(new Error(`请求超时: ${MCP.maskApiKey(url)}`));
+      });
+
+      req.on('error', error => {
+        reject(error);
+      });
     });
   }
 
   // 地理编码 - 将地址转换为经纬度
   async geocode(address) {
+    // 地址清洗失败时退回原始地址，保证后面 catch 里也能拿到可用的 key
+    let cleanedAddress = '';
     try {
-      // 标准化地址
-      const normalizedAddress = this.normalizeAddress(address);
-      // 清理地址格式，移除括号内容和多余空格
-      const cleanedAddress = normalizedAddress
-        .replace(/\（.*?\）/g, '')
-        .replace(/\(.*?\)/g, '')
-        .trim();
+      cleanedAddress = this.cleanAddress(address);
+    } catch (error) {
+      cleanedAddress = typeof address === 'string' ? address.trim() : '';
+    }
 
-      // 检查地址是否为空
-      if (!cleanedAddress) {
-        return null;
+    if (!cleanedAddress) {
+      return null;
+    }
+
+    try {
+      // 同一地址短时间内直接复用结果，避免重复打高德
+      const cached = this.geocodeCache.get(cleanedAddress);
+      if (cached) {
+        if (cached.expiresAt > Date.now()) {
+          return cached.value;
+        }
+        this.geocodeCache.delete(cleanedAddress);
       }
 
       // 尝试多种地址格式
-      const addressVariations = this.generateAddressVariations(cleanedAddress);
+      const variations = this
+        .generateAddressVariations(cleanedAddress)
+        .slice(0, MAX_ADDRESS_VARIATIONS);
 
-      for (const variation of addressVariations) {
+      for (const variation of variations) {
         try {
           // 提取城市名称作为city参数
           const cityName = this.extractCityName(variation);
@@ -72,193 +139,89 @@ class MCP {
             result.geocodes.length > 0
           ) {
             const location = result.geocodes[0].location.split(',');
-            const adcode = result.geocodes[0].adcode;
-            return {
+            const geo = {
               longitude: parseFloat(location[0]),
               latitude: parseFloat(location[1]),
-              adcode: adcode,
+              adcode: result.geocodes[0].adcode,
             };
+            this.rememberGeocode(cleanedAddress, geo);
+            return geo;
           }
         } catch (error) {
           // 单个变体失败，继续尝试下一个
-          console.log(`地理编码变体失败: ${variation}`, error.message);
+          console.log(
+            `地理编码变体失败: ${variation}`,
+            error && error.message ? error.message : error
+          );
         }
       }
 
       // 所有变体都失败，尝试使用城市名称进行地理编码
-      return await this.geocodeByCity(cleanedAddress);
+      const fallback = await this.geocodeByCity(cleanedAddress);
+      this.rememberGeocode(cleanedAddress, fallback);
+      return fallback;
     } catch (error) {
-      // 解析失败，尝试使用城市名称进行地理编码
-      return await this.geocodeByCity(address);
+      // 兜底走城市名查询，同样写缓存：否则持续失败的地址每次请求都会再打一次接口
+      const fallback = await this.geocodeByCity(cleanedAddress);
+      this.rememberGeocode(cleanedAddress, fallback);
+      return fallback;
     }
   }
 
-  // 生成地址变体
+  // 标准化并清理地址格式：移除括号内容与多余空格
+  cleanAddress(address) {
+    if (typeof address !== 'string') {
+      return '';
+    }
+    return this
+      .normalizeAddress(address)
+      .replace(/\（.*?\）/g, '')
+      .replace(/\(.*?\)/g, '')
+      .trim();
+  }
+
+  // 缓存地理编码结果（含 null），避免同一地址反复打高德；超容量时淘汰最旧一项
+  rememberGeocode(key, value) {
+    if (this.geocodeCache.size >= GEOCODE_CACHE_MAX) {
+      const oldestKey = this.geocodeCache.keys().next().value;
+      this.geocodeCache.delete(oldestKey);
+    }
+    this.geocodeCache.set(key, {
+      value,
+      expiresAt: Date.now() + GEOCODE_CACHE_TTL_MS,
+    });
+  }
+
+  // 生成地址变体：只保留"原地址 / 去后缀 / 加城市前缀"三类，数量恒定且可控
   generateAddressVariations(address) {
     const variations = [address];
 
-    // 1. 原地址
-    variations.push(address);
-
-    // 2. 去掉常见后缀
-    const suffixes = [
-      '地铁站',
-      '站',
-      '路',
-      '街',
-      '大道',
-      '大街',
-      '路',
-      '街',
-      '巷',
-      '弄',
-      '村',
-      '社区',
-      '小区',
-      '大厦',
-      '写字楼',
-      '酒店',
-      '宾馆',
-      '饭店',
-      '餐厅',
-      '咖啡厅',
-      '酒吧',
-      'KTV',
-      '电影院',
-      '剧院',
-      '体育馆',
-      '体育场',
-      '游泳馆',
-      '健身房',
-      '医院',
-      '诊所',
-      '药店',
-      '银行',
-      '邮局',
-      '超市',
-      '便利店',
-      '加油站',
-      '停车场',
-      '加油站',
-      '汽车站',
-      '火车站',
-      '机场',
-      '港口',
-      '码头',
-      '公园',
-      '花园',
-      '植物园',
-      '动物园',
-      '博物馆',
-      '美术馆',
-      '图书馆',
-      '科技馆',
-      '少年宫',
-      '文化宫',
-      '体育馆',
-      '体育场',
-      '游泳馆',
-      '健身房',
-      '学校',
-      '幼儿园',
-      '小学',
-      '中学',
-      '大学',
-      '学院',
-      '研究院',
-      '研究所',
-      '实验室',
-      '公司',
-      '企业',
-      '工厂',
-      '工地',
-      '仓库',
-      '物流中心',
-      '批发市场',
-      '零售市场',
-      '商场',
-      '购物中心',
-      '步行街',
-      '商业街',
-      '店铺',
-      '商店',
-      '门店',
-      '摊位',
-      '摊点',
-    ];
-
-    for (const suffix of suffixes) {
-      if (address.endsWith(suffix)) {
-        const withoutSuffix = address.slice(0, -suffix.length).trim();
-        if (withoutSuffix) {
-          variations.push(withoutSuffix);
-        }
+    // 去掉交通/场所类后缀，高德对裸地名命中率更高
+    const matchedSuffix = ADDRESS_SUFFIXES.find(
+      suffix => address.length > suffix.length && address.endsWith(suffix)
+    );
+    if (matchedSuffix) {
+      const withoutSuffix = address.slice(0, -matchedSuffix.length).trim();
+      if (withoutSuffix) {
+        variations.push(withoutSuffix);
       }
     }
 
-    // 3. 提取城市+地标
-    const cityMatch = address.match(/(.*?[市县区])(.*)/);
-    if (cityMatch) {
-      const city = cityMatch[1];
-      const landmark = cityMatch[2].trim();
-      if (landmark) {
-        variations.push(`${city}${landmark}`);
-        variations.push(landmark); // 只保留地标
+    // 城市前缀与裸地标互为补充：带城市的补裸地名，裸地名补城市
+    const city = this.extractCityName(address);
+    const cityPrefixMatch = address.match(/^(.+?[市区县]|北京|上海|天津|重庆)(.+)$/);
+    if (cityPrefixMatch) {
+      const rest = cityPrefixMatch[2].trim();
+      // 剩余部分过短或以行政区划字开头时不造变体，避免切出"市白云山"这类残缺名
+      if (rest.length >= 2 && !/^[市区县镇]/.test(rest)) {
+        variations.push(rest);
       }
-    }
-
-    // 4. 去掉可能的错字
-    const commonErrors = {
-      云: '',
-      员: '',
-      园: '',
-      运: '',
-      晕: '',
-      匀: '',
-      允: '',
-      陨: '',
-      殒: '',
-      酝: '',
-      蕴: '',
-      韵: '',
-      孕: '',
-      熨: '',
-      氲: '',
-      郓: '',
-      恽: '',
-      陨: '',
-      殒: '',
-      酝: '',
-      蕴: '',
-      韵: '',
-      孕: '',
-      熨: '',
-      氲: '',
-      郓: '',
-      恽: '',
-    };
-
-    let correctedAddress = address;
-    for (const [error, correction] of Object.entries(commonErrors)) {
-      correctedAddress = correctedAddress.replace(
-        new RegExp(error, 'g'),
-        correction
-      );
-    }
-    if (correctedAddress !== address) {
-      variations.push(correctedAddress);
-    }
-
-    // 5. 尝试添加常见前缀
-    const prefixes = ['广州市', '广东省广州市'];
-    for (const prefix of prefixes) {
-      if (!address.startsWith(prefix)) {
-        variations.push(`${prefix}${address}`);
-      }
+    } else if (city && !address.startsWith(city)) {
+      variations.push(`${city}${address}`);
     }
 
     // 去重
-    return [...new Set(variations)].filter((v) => v.length > 0);
+    return [...new Set(variations)].filter(Boolean);
   }
 
   // 通过城市名称进行地理编码
@@ -608,7 +571,7 @@ class MCP {
       const cityd = destinationCity || '广州';
       // 添加 nightflag=0 避免夜间路线不同，strategy=10 避免拥堵
       const url = `https://restapi.amap.com/v3/direction/transit/integrated?key=${this.apiKey}&origin=${origin.longitude},${origin.latitude}&destination=${destination.longitude},${destination.latitude}&city=${encodeURIComponent(city)}&cityd=${encodeURIComponent(cityd)}&nightflag=0&strategy=10`;
-      debug.log(` transit API URL: ${url}`);
+      debug.log(` transit API URL: ${MCP.maskApiKey(url)}`);
 
       const data = await this.httpGet(url);
       const result = JSON.parse(data);
@@ -1060,7 +1023,7 @@ class MCP {
           distance: `${Math.round(cityDistance * 1000)}`,
           transfers: [
             `步行或打车到${originHub.railway}`,
-            `乘坐高铁G${Math.floor(Math.random() * 9000) + 1000}次，在${destinationHub.railway}下车`,
+            `乘坐高铁（车次以12306实时查询为准，耗时与票价为估算），在${destinationHub.railway}下车`,
             '步行或打车到目的地',
           ],
           structuredSteps: [
@@ -1071,7 +1034,7 @@ class MCP {
             },
             {
               type: 'train',
-              line: `G${Math.floor(Math.random() * 9000) + 1000}`,
+              line: '高铁（班次以12306实时查询为准）',
               start: originHub.railway,
               end: destinationHub.railway,
               duration_minutes: trainDuration,
@@ -1095,7 +1058,7 @@ class MCP {
           distance: `${Math.round(cityDistance * 1000)}`,
           transfers: [
             `步行或打车到${originHub.airport}（建议提前2小时到达）`,
-            `乘坐航班CA${Math.floor(Math.random() * 9000) + 1000}，在${destinationHub.airport}降落`,
+            `乘坐航班（航班号以航司/票务平台实时查询为准，耗时与票价为估算），在${destinationHub.airport}降落`,
             '落地后约30分钟出站，步行或打车到目的地',
           ],
           structuredSteps: [
@@ -1106,7 +1069,7 @@ class MCP {
             },
             {
               type: 'plane',
-              line: `CA${Math.floor(Math.random() * 9000) + 1000}`,
+              line: '航班（班次以实时查询为准）',
               start: originHub.airport,
               end: destinationHub.airport,
               duration_minutes: totalFlightDuration,
@@ -1419,13 +1382,10 @@ class MCP {
       // 计算两点之间的直线距离（单位：公里）
       const distance = this.calculateDistance(origin, destination);
 
-      // 暂时使用默认城市（实际应用中应该根据坐标反查城市）
-      const originCity = '广州';
-      const destinationCity = '北京';
-
-      // 获取主要交通枢纽
-      const originHub = this.getMainTransportHub(originCity, null);
-      const destinationHub = this.getMainTransportHub(destinationCity, null);
+      // 说明：此处原先硬编码了一对固定城市并据此取交通枢纽，得到的位置
+      // 与实际传入坐标无关；而这两个枢纽变量在下面的各交通方式中并未被
+      // 使用，属于误导性死代码，故移除。
+      // 若日后需要按城市生成长途方案，应先通过逆地理编码反查真实城市名。
 
       // 构建路线数据
       const directions = [];
