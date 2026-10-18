@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🌏 Travel Assistant Agent
+# Travel Assistant Agent
 
 **基于 MCP 服务与 Skills 能力的智能旅行助手 Agent**
 
@@ -18,39 +18,47 @@
 
 一个集成 **路线规划 / 天气查询 / 周边搜索 / 多轮对话** 的智能旅行助手。通过 LLM 理解用户意图，调度地图与天气等外部能力，并通过 Skills 插件化机制对外提供统一对话入口。
 
----
+> [!IMPORTANT]
+> **首次运行前必须先配置 API 密钥。**
+> 本项目依赖第三方服务，`npm install` 与 `npm start` **不会**自动获取密钥。请先在根目录创建 `.env` 并填入
+> `MAP_API_KEY`、`WEATHER_API_KEY`、`LLM_API_KEY`，否则路线规划、天气查询、多轮对话等能力会直接报错或降级不可用。
+> 详见 [环境变量](#环境变量)。
 
-## 📑 目录
-
-- [✨ 功能特性](#-功能特性)
-- [🚀 快速开始](#-快速开始)
-- [⚙️ 环境变量](#️-环境变量)
-- [📁 项目结构](#-项目结构)
-- [🔌 API 文档](#-api-文档)
-- [🐳 Docker 部署](#-docker-部署)
-- [🧪 测试与代码检查](#-测试与代码检查)
-- [🛠 技术栈](#-技术栈)
-- [🤝 贡献指南](#-贡献指南)
-- [📄 许可证](#-许可证)
+> [!CAUTION]
+> `.env` 已被 `.gitignore` 忽略，**切勿将密钥提交到仓库**。若密钥曾外泄，请立即到对应平台重新生成。
 
 ---
 
-## ✨ 功能特性
+## 目录
+
+- [功能特性](#功能特性)
+- [快速开始](#快速开始)
+- [环境变量](#环境变量)
+- [项目结构](#项目结构)
+- [API 文档](#api-文档)
+- [Docker 部署](#docker-部署)
+- [测试与代码检查](#测试与代码检查)
+- [技术栈](#技术栈)
+- [许可证](#许可证)
+
+---
+
+## 功能特性
 
 | 功能 | 说明 |
 | :--- | :--- |
-| 🧭 **路线规划** | 输入起点与终点，调用地图 API 规划出行路线 |
-| 🏆 **多方案推荐** | 输出驾车 / 公交 / 步行等多种方案，并基于时间、成本、便捷性给出最优推荐 |
-| 🌦 **天气查询** | 查询指定城市天气，并生成出行建议 |
-| 📍 **周边搜索** | 按关键词搜索指定地点附近的 POI（餐饮、景点等） |
-| 💬 **多轮对话** | 基于会话上下文理解指代与追问（如 "那明天呢？"） |
-| 🔐 **会话安全** | 服务端签发并校验会话 Token，避免会话被枚举 / 冒用 |
-| 🧩 **Skills 机制** | 意图 → 技能路由，`SkillManager` 统一管理，便于横向扩展 |
-| 🛡 **输入防护** | 输入清洗与长度限制，`/api/*` 统一按 IP 限流（超限返回 `429`） |
+| **路线规划** | 输入起点与终点，调用地图 API 规划出行路线 |
+| **多方案推荐** | 输出驾车 / 公交 / 步行等多种方案，并基于时间、成本、便捷性给出最优推荐 |
+| **天气查询** | 查询指定城市天气，并生成出行建议 |
+| **周边搜索** | 按关键词搜索指定地点附近的 POI（餐饮、景点等） |
+| **多轮对话** | 基于会话上下文理解指代与追问（如 "那明天呢？"） |
+| **会话安全** | 服务端签发并校验会话 Token，避免会话被枚举 / 冒用 |
+| **Skills 机制** | 意图 → 技能路由，`SkillManager` 统一管理，便于横向扩展 |
+| **输入防护** | 输入清洗与长度限制，`/api/*` 统一按 IP 限流（超限返回 `429`） |
 
 ---
 
-## 🚀 快速开始
+## 快速开始
 
 ### 1. 环境要求
 
@@ -65,7 +73,10 @@ cd travel-assistant
 npm install
 ```
 
-### 3. 配置环境变量
+### 3. 配置环境变量（必做）
+
+> [!IMPORTANT]
+> 这一步是运行前置条件，跳过会导致地图、天气、对话接口全部不可用。
 
 在项目根目录创建 `.env` 文件（**请勿提交到仓库**）：
 
@@ -87,7 +98,22 @@ DEBUG=false
 LOG_LEVEL=info
 ```
 
-> ⚠️ 未配置 `MAP_API_KEY` / `WEATHER_API_KEY` / `LLM_API_KEY` 时，对应能力会降级或不可用。
+#### 密钥从哪里获取
+
+| 变量 | 申请地址 | 类型 |
+| :--- | :--- | :--- |
+| `MAP_API_KEY` | [高德开放平台](https://console.amap.com/dev/key/app) → 创建应用 → 添加 Key → 服务平台选 **Web服务** | 必填 |
+| `WEATHER_API_KEY` | [和风天气控制台](https://console.qweather.com/) → 项目管理 → 创建 Key → 订阅类型选 **Web API** | 必填 |
+| `LLM_API_KEY` | 所用 LLM 服务商控制台（如 [Silicon Flow](https://cloud.siliconflow.cn/)） | 必填 |
+| `SILICON_FLOW_API_KEY` | [Silicon Flow](https://cloud.siliconflow.cn/) → API 密钥 | 可选 |
+
+> [!WARNING]
+> 未配置 `MAP_API_KEY` / `WEATHER_API_KEY` / `LLM_API_KEY` 时：
+> - 路线规划、周边搜索、逆地理编码会失败
+> - 天气查询不可用
+> - 多轮对话退化为关键词兜底，无法理解自然语言意图
+
+配置完成后可执行 `node -e "require('./src/config/env')"` 快速确认 `.env` 是否被正确加载（值为 `undefined` 说明变量名写错或文件未放在根目录）。
 
 ### 4. 启动
 
@@ -125,14 +151,18 @@ const TravelAssistant = require('./src/core/main');
 
 ---
 
-## ⚙️ 环境变量
+## 环境变量
+
+> [!IMPORTANT]
+> 变量表中「必填」列为 `是` 的密钥为**运行必需项**，必须在 `.env` 中配置后服务才能正常工作。申请方式见 [密钥从哪里获取](#密钥从哪里获取)。
+> `.env` 需在进程启动时加载，**修改后必须重启服务**才会生效。
 
 | 变量 | 必填 | 默认值 | 说明 |
 | :--- | :---: | :--- | :--- |
 | `NODE_ENV` | 否 | `development` | 运行环境，生产建议 `production` |
-| `MAP_API_KEY` | ✅ | — | 高德地图 Web 服务 Key |
-| `WEATHER_API_KEY` | ✅ | — | 和风天气 Key |
-| `LLM_API_KEY` | ✅ | — | LLM 服务 Key |
+| `MAP_API_KEY` | 是 | — | 高德地图 Web 服务 Key |
+| `WEATHER_API_KEY` | 是 | — | 和风天气 Key |
+| `LLM_API_KEY` | 是 | — | LLM 服务 Key |
 | `SILICON_FLOW_API_KEY` | 否 | — | Silicon Flow Key（Embedding / 备用模型） |
 | `PORT` | 否 | `3001` | HTTP 服务监听端口 |
 | `DEBUG` | 否 | `false` | `true` 时等价 `LOG_LEVEL=debug` |
@@ -142,7 +172,7 @@ const TravelAssistant = require('./src/core/main');
 
 ---
 
-## 📁 项目结构
+## 项目结构
 
 ```text
 travel-assistant/
@@ -168,7 +198,7 @@ travel-assistant/
 
 ---
 
-## 🔌 API 文档
+## API 文档
 
 所有接口基于 `http://localhost:3001`，请求 / 响应均为 `application/json`。
 
@@ -225,7 +255,10 @@ travel-assistant/
 
 ---
 
-## 🐳 Docker 部署
+## Docker 部署
+
+> [!IMPORTANT]
+> `docker-compose.yml` 通过 `env_file` 读取根目录的 `.env`，**容器同样需要密钥**。请先完成 [第 3 步密钥配置](#3-配置环境变量必做)，否则容器内服务会启动但接口全部不可用。
 
 ```bash
 # 一键启动应用 + Redis + Milvus
@@ -242,7 +275,7 @@ docker compose down -v
 
 ---
 
-## 🧪 测试与代码检查
+## 测试与代码检查
 
 ```bash
 npm test          # 运行 Jest 测试
@@ -255,7 +288,7 @@ npm run format    # Prettier 格式化
 
 ---
 
-## 🛠 技术栈
+## 技术栈
 
 | 分类 | 选型 |
 | :--- | :--- |
@@ -268,23 +301,9 @@ npm run format    # Prettier 格式化
 
 ---
 
-## 🤝 贡献指南
-
-欢迎任何形式的贡献：提交 Bug、修复问题、新增技能或改进文档。
-
-1. **Fork** 本仓库
-2. 创建特性分支：`git checkout -b feature/awesome-feature`
-3. 安装依赖并开发：`npm install`
-4. 确保通过检查：`npm run lint && npm test`
-5. 提交：`git commit -m "feat: add awesome feature"`
-6. 推送：`git push origin feature/awesome-feature`
-7. 发起 **Pull Request**
-
-提交信息建议使用 [Conventional Commits](https://www.conventionalcommits.org/) 规范（`feat:` / `fix:` / `docs:` / `refactor:`）。
-
 ---
 
-## 📄 许可证
+## 许可证
 
 本项目基于 [MIT License](https://opensource.org/licenses/MIT) 开源，详见 [LICENSE](LICENSE)。
 
@@ -292,6 +311,6 @@ npm run format    # Prettier 格式化
 
 <div align="center">
 
-Made with ❤️ by the Travel Assistant team
+Created by the Travel Assistant team
 
 </div>
