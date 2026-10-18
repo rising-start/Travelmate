@@ -1,9 +1,7 @@
-/**
- * Prettier 配置
- */
+
+
 
 module.exports = {
-  // 基本配置
   printWidth: 80,
   tabWidth: 2,
   useTabs: false,

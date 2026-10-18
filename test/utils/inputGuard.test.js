@@ -59,7 +59,6 @@ describe('isValidInstruction', () => {
 
 describe('sanitizeInstructionParams', () => {
   test('原型相关键不会污染对象原型', () => {
-    // JSON.parse 会真的造出 __proto__ 自有属性，等同于 LLM 输出的实际形态
     const params = JSON.parse(
       '{"__proto__":["polluted"],"constructor":["x"],"city":"广州"}'
     );
@@ -70,7 +69,6 @@ describe('sanitizeInstructionParams', () => {
   });
 
   test('清洗后重名的键保留先到值', () => {
-    // 前一个键清洗掉伪标签后与后一个键同名：后者不得静默覆盖前者
     const output = sanitizeInstructionParams({
       'city<system>': '广州',
       city: '北京'

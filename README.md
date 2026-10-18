@@ -1,293 +1,297 @@
-# 旅行助手Agent
+<div align="center">
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Node.js Version](https://img.shields.io/badge/Node.js-16%2B-blue.svg)](https://nodejs.org/)
+# 🌏 Travel Assistant Agent
 
-一个基于MCP服务与Skills能力的智能旅行助手Agent，提供路线规划、多方案推荐、天气查询、周边搜索等功能，支持多轮对话交互。
+**基于 MCP 服务与 Skills 能力的智能旅行助手 Agent**
 
-## 目录
+</div>
 
-- [项目简介](#项目简介)
-- [核心功能](#核心功能)
-- [项目结构](#项目结构)
-- [环境要求](#环境要求)
-- [安装与开始](#安装与开始)
-- [使用说明](#使用说明)
-- [API接口](#api接口)
-- [配置管理](#配置管理)
-- [技术栈](#技术栈)
-- [贡献指南](#贡献指南)
-- [许可证](#许可证)
+<div align="center">
 
-## 项目简介
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D16.0.0-green.svg?style=flat-square&logo=node.js)](https://nodejs.org/)
+[![CI/CD](https://img.shields.io/badge/CI-GitHub%20Actions-blue.svg?style=flat-square&logo=githubactions)](.github/workflows/ci-cd.yml)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ED.svg?style=flat-square&logo=docker)](docker-compose.yml)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](https://github.com/your-username/travel-assistant/pulls)
 
-旅行助手Agent是一个专注于提供智能旅行相关服务的应用，旨在解决用户在旅行过程中的各种需求。它通过整合多种API服务，为用户提供路线规划、天气查询、周边搜索等功能，并支持自然语言交互，让用户能够以更直观的方式获取所需信息。
+</div>
 
-该项目采用模块化设计，具有良好的可扩展性，可根据需求添加更多功能和服务。
+一个集成 **路线规划 / 天气查询 / 周边搜索 / 多轮对话** 的智能旅行助手。通过 LLM 理解用户意图，调度地图与天气等外部能力，并通过 Skills 插件化机制对外提供统一对话入口。
 
-## 核心功能
+---
 
-- **路线规划**：接收当前地址和目的地址，规划可行路线
-- **多方案与最优推荐**：提供至少两种出行方案（如驾车、公交、步行），并基于时间/成本/便捷性给出一个最优方案
-- **天气查询**：获取指定地点的天气信息和出行建议
-- **周边搜索**：搜索指定地点附近的POI（兴趣点）
-- **多轮对话**：支持自然语言交互，理解用户意图，提供智能响应
-- **HTTP服务器**：提供API接口，支持Web端访问
-- **可扩展性**：模块化设计，预留接口以便后续添加更多功能
+## 📑 目录
 
-## 项目结构
+- [✨ 功能特性](#-功能特性)
+- [🚀 快速开始](#-快速开始)
+- [⚙️ 环境变量](#️-环境变量)
+- [📁 项目结构](#-项目结构)
+- [🔌 API 文档](#-api-文档)
+- [🐳 Docker 部署](#-docker-部署)
+- [🧪 测试与代码检查](#-测试与代码检查)
+- [🛠 技术栈](#-技术栈)
+- [🤝 贡献指南](#-贡献指南)
+- [📄 许可证](#-许可证)
 
-```
-├── src/                 # 源代码目录
-│   ├── core/            # 核心功能模块
-│   │   ├── main.js      # TravelAssistant主类
-│   │   └── multiTurnTravelAssistant.js # 多轮对话助手
-│   ├── services/        # 服务模块
-│   │   ├── llm.js        # LLM服务（自然语言理解）
-│   │   ├── mcp.js       # MCP服务（地理编码、路线规划等）
-│   │   ├── vectorStore.js # 向量存储
-│   │   ├── weather.js    # 天气服务
-│   │   └── weatherAdvice.js # 天气建议
-│   ├── session/         # 会话管理
-│   │   ├── conversationSession.js # 会话管理
-│   │   └── dialogManager.js # 对话管理
-│   ├── skills/          # 技能模块
-│   │   ├── AskUserSkill.js # 用户问答技能
-│   │   ├── GeneralInfoSkill.js # 通用信息技能
-│   │   ├── POISkill.js  # 周边搜索技能
-│   │   ├── RouteSkill.js # 路线规划技能
-│   │   ├── ShowMoreSkill.js # 显示更多技能
-│   │   ├── SkillManager.js # 技能管理
-│   │   └── WeatherSkill.js # 天气查询技能
-│   ├── utils/           # 工具模块
-│   │   ├── logger.js    # 分级日志（error/warn/info/debug，含脱敏）
-│   │   └── debug.js     # 调试工具（已转为 logger 兼容层）
-│   ├── config/          # 配置模块
-│   │   ├── config.js    # 配置信息
-│   │   └── env.js        # 环境配置
-│   └── server/          # 服务器模块
-│       ├── app.js        # 命令行接口
-│       └── server.js     # HTTP服务器
-├── test/                # 测试目录
-│   ├── core/            # 核心模块测试
-│   │   └── multiTurnTravelAssistant.test.js # 多轮对话助手测试
-│   ├── skills/           # 技能模块测试
-│   │   ├── RouteSkill.test.js # 路线规划技能测试
-│   │   └── SkillManager.test.js # 技能管理测试
-│   └── main.test.js     # 主测试文件
-├── .dockerignore        # Docker忽略文件
-├── .eslintrc.js         # ESLint配置
-├── .gitignore           # Git忽略文件
-├── .prettierrc.js       # Prettier配置
-├── 404.html             # 404页面
-├── Dockerfile           # Docker构建文件
-├── index.html           # 首页
-├── index.js             # 项目入口
-├── jest.config.js       # Jest测试配置
-├── package-lock.json    # 依赖版本锁定
-├── package.json         # 项目配置
-└── README.md            # 项目说明
-```
+---
 
-## 环境要求
+## ✨ 功能特性
 
-- Node.js 16.0 或更高版本
-- npm 7.0 或更高版本
+| 功能 | 说明 |
+| :--- | :--- |
+| 🧭 **路线规划** | 输入起点与终点，调用地图 API 规划出行路线 |
+| 🏆 **多方案推荐** | 输出驾车 / 公交 / 步行等多种方案，并基于时间、成本、便捷性给出最优推荐 |
+| 🌦 **天气查询** | 查询指定城市天气，并生成出行建议 |
+| 📍 **周边搜索** | 按关键词搜索指定地点附近的 POI（餐饮、景点等） |
+| 💬 **多轮对话** | 基于会话上下文理解指代与追问（如 "那明天呢？"） |
+| 🔐 **会话安全** | 服务端签发并校验会话 Token，避免会话被枚举 / 冒用 |
+| 🧩 **Skills 机制** | 意图 → 技能路由，`SkillManager` 统一管理，便于横向扩展 |
+| 🛡 **输入防护** | 输入清洗与长度限制，`/api/*` 统一按 IP 限流（超限返回 `429`） |
 
-## 安装与开始
+---
 
-### 安装依赖
+## 🚀 快速开始
+
+### 1. 环境要求
+
+- **Node.js** >= 16.0.0
+- **npm** >= 7.0.0
+
+### 2. 克隆与安装
 
 ```bash
+git clone https://github.com/your-username/travel-assistant.git
+cd travel-assistant
 npm install
 ```
 
-### 配置环境变量
+### 3. 配置环境变量
 
-在项目根目录创建 `.env` 文件，并填写以下配置：
+在项目根目录创建 `.env` 文件（**请勿提交到仓库**）：
 
-```env
-# 环境配置
+```dotenv
+# 运行环境
 NODE_ENV=development
 
-# API密钥
-MAP_API_KEY=your_map_api_key
-WEATHER_API_KEY=your_weather_api_key
+# API 密钥
+MAP_API_KEY=your_amap_api_key
+WEATHER_API_KEY=your_qweather_api_key
 LLM_API_KEY=your_llm_api_key
+SILICON_FLOW_API_KEY=your_siliconflow_api_key
 
-# 服务器配置
+# 服务配置
 PORT=3001
 
-# 调试模式
+# 日志：silent / error / warn / info / debug，缺省 info（DEBUG=true 等价于 debug）
 DEBUG=false
-
-# 日志级别：silent/error/warn/info/debug，缺省 info（DEBUG=true 时等价 debug）
 LOG_LEVEL=info
 ```
 
-### 运行开发模式
+> ⚠️ 未配置 `MAP_API_KEY` / `WEATHER_API_KEY` / `LLM_API_KEY` 时，对应能力会降级或不可用。
+
+### 4. 启动
 
 ```bash
+# 命令行示例：依次演示路线规划、天气查询、周边搜索
 npm run dev
-```
 
-### 启动服务器
-
-```bash
+# 启动 HTTP 服务
 npm start
 ```
 
-服务器将运行在 `http://localhost:3001`
+服务启动后访问 <http://localhost:3001> 即可使用内置 Web 界面。
 
-### 运行测试
-
-```bash
-npm test
-```
-
-### 代码检查
-
-```bash
-# 运行 ESLint 检查
-npm run lint
-
-# 自动修复 ESLint 问题
-npm run lint:fix
-
-# 格式化代码
-npm run format
-```
-
-## 使用说明
-
-### 基本使用
+### 5. 以模块方式调用
 
 ```javascript
 const TravelAssistant = require('./src/core/main');
 
-async function main() {
+(async () => {
   const assistant = new TravelAssistant();
-  
-  // 规划路线
-  const routeResult = await assistant.planRoute('北京', '上海');
-  console.log('路线规划结果:', routeResult);
 
-  // 处理用户输入
-  const result = await assistant.processUserInput('北京天气如何');
-  console.log('处理结果:', result);
-}
+  // 路线规划
+  const route = await assistant.planRoute('北京', '上海');
+  console.log(route);
 
-main();
+  // 自然语言意图处理
+  const weather = await assistant.processUserInput('北京天气如何');
+  console.log(weather);
+
+  // 周边搜索
+  const nearby = await assistant.searchNearby('北京天安门', '餐厅');
+  console.log(nearby);
+})();
 ```
 
-### Web端使用
+---
 
-启动服务器后，打开浏览器访问 `http://localhost:3001`，即可使用Web界面进行交互。
+## ⚙️ 环境变量
 
-## API接口
+| 变量 | 必填 | 默认值 | 说明 |
+| :--- | :---: | :--- | :--- |
+| `NODE_ENV` | 否 | `development` | 运行环境，生产建议 `production` |
+| `MAP_API_KEY` | ✅ | — | 高德地图 Web 服务 Key |
+| `WEATHER_API_KEY` | ✅ | — | 和风天气 Key |
+| `LLM_API_KEY` | ✅ | — | LLM 服务 Key |
+| `SILICON_FLOW_API_KEY` | 否 | — | Silicon Flow Key（Embedding / 备用模型） |
+| `PORT` | 否 | `3001` | HTTP 服务监听端口 |
+| `DEBUG` | 否 | `false` | `true` 时等价 `LOG_LEVEL=debug` |
+| `LOG_LEVEL` | 否 | `info` | `silent`/`error`/`warn`/`info`/`debug`；`error`、`warn` 输出到 stderr，`key`/`token`/`secret` 类字段自动脱敏 |
+| `REDIS_URL` | 否 | — | Redis 连接串（Docker 环境默认 `redis://redis:6379`） |
+| `MILVUS_ADDRESS` | 否 | — | Milvus 地址（Docker 环境默认 `milvus:19530`） |
 
-### 1. 路线规划
+---
 
-**URL**: `/api/plan-route`
-**方法**: POST
-**请求体**:
-```json
-{
-  "origin": "出发地",
-  "destination": "目的地"
-}
+## 📁 项目结构
+
+```text
+travel-assistant/
+├── src/
+│   ├── config/           # 配置加载（config.js / env.js）
+│   ├── core/             # 核心：TravelAssistant 主类、多轮对话助手
+│   ├── server/           # HTTP 服务（server.js）与命令行入口（app.js）
+│   ├── services/         # 外部能力：LLM、MCP（地理编码/路线）、天气、向量存储
+│   ├── session/          # 会话与对话状态管理
+│   ├── skills/           # 技能插件：Route / Weather / POI / GeneralInfo / AskUser / ShowMore
+│   └── utils/            # 日志、调试、输入防护、会话 Token
+├── test/                 # Jest 测试（core / skills / services / session / utils）
+├── docs/                 # 项目文档
+├── .github/workflows/    # GitHub Actions CI/CD
+├── index.html            # Web 交互页面
+├── 404.html              # 404 页面
+├── docker-compose.yml    # 应用 + Redis + Milvus
+├── docker-compose-milvus.yml
+├── Dockerfile
+├── index.js              # 示例入口
+└── package.json
 ```
 
-### 2. 处理用户输入
+---
 
-**URL**: `/api/process-input`
-**方法**: POST
-**请求体**:
-```json
-{
-  "input": "用户输入内容"
-}
+## 🔌 API 文档
+
+所有接口基于 `http://localhost:3001`，请求 / 响应均为 `application/json`。
+
+> `/api/*` 统一按 IP 限流，触发限制时返回 `HTTP 429`。
+
+| 方法 | 路径 | 说明 |
+| :--- | :--- | :--- |
+| `GET` | `/api/ip-location` | 根据客户端 IP 获取粗略定位 |
+| `POST` | `/api/plan-route` | 路线规划 |
+| `POST` | `/api/process-input` | 单轮意图识别与处理 |
+| `GET` `POST` | `/api/session` | 由服务端签发会话 ID |
+| `POST` | `/api/update-location` | 更新会话中的当前位置 |
+| `POST` | `/api/reverse-geocode` | 逆地理编码（经纬度 → 行政区地址） |
+| `POST` | `/api/chat` | 多轮对话主入口 |
+
+### `POST /api/plan-route`
+
+```jsonc
+// Request
+{ "origin": "北京", "destination": "上海" }
 ```
 
-### 3. 聊天接口
+### `POST /api/chat`
 
-**URL**: `/api/chat`
-**方法**: POST
-**请求体**:
-```json
-{
-  "message": "聊天消息",
-  "sessionId": "会话ID"
-}
+```jsonc
+// Request
+{ "message": "明天适合去爬长城吗", "sessionId": "<由 /api/session 签发>" }
+
+// Response
+{ "success": true, "sessionId": "<服务端会话 Token>", "reply": "……" }
 ```
 
-### 4. 更新位置
+> 会话 ID 必须由服务端签发（`/api/session`）并回传，无效 ID 会被自动分配新会话，防止会话枚举 / 冒用。
 
-**URL**: `/api/update-location`
-**方法**: POST
-**请求体**:
-```json
-{
-  "sessionId": "会话ID",
-  "location": "位置名称",
-  "lat": 纬度,
-  "lng": 经度
-}
+### `POST /api/update-location`
+
+```jsonc
+// Request
+{ "sessionId": "…", "location": "北京南站", "lat": 39.865, "lng": 116.379 }
+
+// Response
+{ "success": true }
 ```
 
-### 5. 逆地理编码
+### `POST /api/reverse-geocode`
 
-**URL**: `/api/reverse-geocode`
-**方法**: POST
-**请求体**:
-```json
-{
-  "latitude": 纬度,
-  "longitude": 经度
-}
+```jsonc
+// Request
+{ "latitude": 39.9087, "longitude": 116.3975 }
+
+// Response
+{ "success": true, "location": "北京市东城区东华门街道" }
 ```
 
-## 配置管理
+---
 
-项目使用 `.env` 文件管理配置，主要配置项包括：
+## 🐳 Docker 部署
 
-- `NODE_ENV`：环境类型（development, production）
-- `MAP_API_KEY`：高德地图API密钥
-- `WEATHER_API_KEY`：天气API密钥
-- `LLM_API_KEY`：LLM API密钥
-- `SILICON_FLOW_API_KEY`：Silicon Flow API密钥
-- `PORT`：服务器端口
-- `DEBUG`：调试模式，置为 `true` 时等价 `LOG_LEVEL=debug`
-- `LOG_LEVEL`：日志级别（`silent`/`error`/`warn`/`info`/`debug`，缺省 `info`）。`error`、`warn` 输出到 stderr 且不受 `DEBUG` 影响；`key`/`token`/`secret` 等敏感字段自动脱敏
+```bash
+# 一键启动应用 + Redis + Milvus
+docker compose up -d
 
-## 技术栈
+# 查看运行状态
+docker compose ps
 
-- **核心技术**：Node.js
-- **API服务**：高德地图API、和风天气API
-- **AI能力**：LLM自然语言理解
-- **工程化工具**：ESLint, Prettier, Jest, GitHub Actions
-- **容器化**：Docker
+# 停止并清理数据卷
+docker compose down -v
+```
 
-## 贡献指南
+镜像内置健康检查，容器就绪后可访问 `http://localhost:3001`。
 
-我们欢迎任何形式的贡献，包括但不限于：
+---
 
-1. **报告Bug**：在GitHub Issues中提交详细的Bug报告
-2. **修复Bug**：Fork项目，修复Bug后提交PR
-3. **添加功能**：实现新功能并提交PR
-4. **完善文档**：改进README或添加新的文档
+## 🧪 测试与代码检查
 
-### 贡献流程
+```bash
+npm test          # 运行 Jest 测试
+npm run lint      # ESLint 检查
+npm run lint:fix  # 自动修复 ESLint 问题
+npm run format    # Prettier 格式化
+```
 
-1. Fork项目仓库
-2. 克隆到本地：`git clone https://github.com/your-username/travel-assistant.git`
-3. 创建分支：`git checkout -b feature/your-feature`
-4. 安装依赖：`npm install`
-5. 开发并测试
-6. 提交代码：`git commit -m "Add your feature"`
-7. 推送到远程：`git push origin feature/your-feature`
-8. 在GitHub上创建PR
+推送到 `main` / `master` 或发起 PR 时，GitHub Actions 会自动执行安装依赖 → Lint → 测试 → 构建。
 
-## 许可证
+---
 
-本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
+## 🛠 技术栈
+
+| 分类 | 选型 |
+| :--- | :--- |
+| 运行时 | Node.js（原生 `http` 模块） |
+| 外部能力 | 高德地图 API、和风天气 API |
+| AI | LLM 意图理解、`@xenova/transformers` 本地 Embedding |
+| 存储 | Redis（会话）、Milvus / Vectra（向量检索） |
+| 工程化 | ESLint、Prettier、Jest、GitHub Actions |
+| 部署 | Docker / Docker Compose |
+
+---
+
+## 🤝 贡献指南
+
+欢迎任何形式的贡献：提交 Bug、修复问题、新增技能或改进文档。
+
+1. **Fork** 本仓库
+2. 创建特性分支：`git checkout -b feature/awesome-feature`
+3. 安装依赖并开发：`npm install`
+4. 确保通过检查：`npm run lint && npm test`
+5. 提交：`git commit -m "feat: add awesome feature"`
+6. 推送：`git push origin feature/awesome-feature`
+7. 发起 **Pull Request**
+
+提交信息建议使用 [Conventional Commits](https://www.conventionalcommits.org/) 规范（`feat:` / `fix:` / `docs:` / `refactor:`）。
+
+---
+
+## 📄 许可证
+
+本项目基于 [MIT License](https://opensource.org/licenses/MIT) 开源，详见 [LICENSE](LICENSE)。
+
+---
+
+<div align="center">
+
+Made with ❤️ by the Travel Assistant team
+
+</div>

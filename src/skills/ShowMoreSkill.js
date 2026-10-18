@@ -1,14 +1,9 @@
-/**
- * ShowMoreSkill - 处理显示更多结果功能
- */
+
+
 
 class ShowMoreSkill {
-  /**
-   * 执行显示更多结果技能
-   * @param {Object} params - 参数
-   * @param {Object} session - 会话对象
-   * @returns {Promise<Object>} - 执行结果
-   */
+  
+
   async execute(params, session) {
     try {
       const lastPoiResults = session.getLastPoiResults();
@@ -47,7 +42,6 @@ class ShowMoreSkill {
       });
       answer += '还有更多需要帮助的吗？';
 
-      // 获取搜索中心点和关键词
       const center = session.getLastSearchedLocation();
       const keywords = session.getLastPoiKeywords();
 

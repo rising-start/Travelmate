@@ -1,6 +1,5 @@
-/**
- * DialogManager 测试：验证死代码已移除、提示词要求 selected_skill、状态机容错
- */
+
+
 
 const DialogManager = require('../../src/session/dialogManager');
 const {

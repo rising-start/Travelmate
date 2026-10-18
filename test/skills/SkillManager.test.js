@@ -1,10 +1,8 @@
-/**
- * SkillManager 测试
- */
+
+
 
 const SkillManager = require('../../src/skills/SkillManager');
 
-// Mock 依赖
 jest.mock('../../src/skills/RouteSkill');
 jest.mock('../../src/skills/WeatherSkill');
 jest.mock('../../src/skills/POISkill');
@@ -25,10 +23,8 @@ describe('SkillManager', () => {
   let mockWeather;
 
   beforeEach(() => {
-    // 重置所有 mocks
     jest.clearAllMocks();
     
-    // 创建 mock 依赖
     mockMcp = {
       geocode: jest.fn(),
       getDirections: jest.fn(),
@@ -41,7 +37,6 @@ describe('SkillManager', () => {
       generateNaturalLanguageAdvice: jest.fn()
     };
     
-    // 创建 SkillManager 实例
     skillManager = new SkillManager(mockMcp, mockWeather);
   });
 
@@ -62,7 +57,6 @@ describe('SkillManager', () => {
         execute: jest.fn().mockResolvedValue({ thought: 'Skill executed', answer: 'Skill result' })
       };
       
-      // 模拟技能实例
       skillManager.skills.TestSkill = mockSkill;
       
       const params = { test: 'data' };
@@ -87,7 +81,6 @@ describe('SkillManager', () => {
         execute: jest.fn().mockRejectedValue(new Error('Skill execution failed'))
       };
       
-      // 模拟技能实例
       skillManager.skills.TestSkill = mockSkill;
       
       const params = { test: 'data' };

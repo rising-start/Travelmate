@@ -1,7 +1,5 @@
 const { LOG_LEVEL } = require('../config/config');
 
-// 日志级别由低到高：数值越小越重要，silent 关闭全部输出
-// 冻结并用自有属性判定：避免 LOG_LEVEL=constructor 这类原型属性被当成合法级别
 const LEVEL_ORDER = Object.freeze({
   silent: -1,
   error: 0,
@@ -10,8 +8,6 @@ const LEVEL_ORDER = Object.freeze({
   debug: 3
 });
 const DEFAULT_LEVEL = 'info';
-// 按“词元”判定：字段名拆开 camelCase/snake_case 后命中即打码，
-// 避免 substring 匹配把 keyword/monkey 这类普通字段一起脱敏
 const SENSITIVE_TOKENS = new Set([
   'key',
   'token',
@@ -37,7 +33,6 @@ function normalizeLevel(raw) {
   return owned ? level : DEFAULT_LEVEL;
 }
 
-// 每次求值而非模块加载时缓存，便于运行期调整 process.env.LOG_LEVEL
 function currentLevel() {
   const raw = process.env.LOG_LEVEL || LOG_LEVEL;
   if (!raw && process.env.DEBUG === 'true') {
@@ -61,7 +56,6 @@ function splitTokens(key) {
 
 function isSensitiveKey(key) {
   return splitTokens(key).some(token => {
-    // 复数形式一并命中，例如 tokens/keys/credentials
     const singular = token.endsWith('s') ? token.slice(0, -1) : token;
     return SENSITIVE_TOKENS.has(token) || SENSITIVE_TOKENS.has(singular);
   });
@@ -74,7 +68,6 @@ function redact(value, depth) {
   if (value === null || value === undefined) {
     return value;
   }
-  // 以下几类用 JSON.stringify 会退化成 {} 或丢信息，必须先转成可读文本
   if (value instanceof Error) {
     return formatError(value);
   }
@@ -140,7 +133,6 @@ function serialize(value) {
   ) {
     return String(value);
   }
-  // Error 的 message/stack 不可枚举，必须单独处理，否则 JSON.stringify 得到 {}
   if (value instanceof Error) {
     return formatError(value);
   }
@@ -164,12 +156,9 @@ function write(level, args) {
   const timestamp = new Date().toISOString();
   const body = args.map(arg => serialize(arg)).join(' ');
   const line = truncate(`[${timestamp}] [${level.toUpperCase()}] ${body}`);
-  // 错误与告警走 stderr，便于容器侧单独采集
   if (level === 'error' || level === 'warn') {
-    // eslint-disable-next-line no-console
     console.error(line);
   } else {
-    // eslint-disable-next-line no-console
     console.log(line);
   }
 }
@@ -181,9 +170,7 @@ function createLogger(prefix) {
     warn: (...args) => emit('warn', args),
     info: (...args) => emit('info', args),
     debug: (...args) => emit('debug', args),
-    // 附加固定上下文（如 requestId / sessionId），便于串联一次请求的日志
     child: context => {
-      // 上下文为空时不要拼出字面量 undefined 前缀
       if (context === undefined || context === null) {
         return createLogger(prefix);
       }

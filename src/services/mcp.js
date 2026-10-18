@@ -12,8 +12,7 @@ const {
   PROVINCES,
 } = require('../config/config');
 
-const REQUEST_TIMEOUT = 10000; // 10 秒请求超时
-// 地址后缀（按长度降序，匹配时优先命中更具体的后缀）
+const REQUEST_TIMEOUT = 10000;
 const ADDRESS_SUFFIXES = [
   '风景名胜区',
   '旅游度假区',
@@ -41,9 +40,7 @@ const ADDRESS_SUFFIXES = [
   '医院',
   '景区',
 ];
-// 单次地理编码最多尝试的地址变体数（原实现会随后缀表膨胀，把请求耗时拖到数十秒）
 const MAX_ADDRESS_VARIATIONS = 8;
-// 地理编码结果缓存：同一地址短时间内不重复打高德
 const GEOCODE_CACHE_TTL_MS = 5 * 60 * 1000;
 const GEOCODE_CACHE_MAX = 500;
 
@@ -53,18 +50,15 @@ class MCP {
     this.geocodeCache = new Map();
   }
 
-  // 日志脱敏：避免把 key=xxx 完整落入日志
   static maskApiKey(url) {
     return String(url).replace(/([?&]key=)[^&\s]+/gi, '$1***');
   }
 
-  // 通用 HTTP GET 请求方法（带超时、状态码校验与 socket 释放）
   async httpGet(url, timeoutMs = REQUEST_TIMEOUT) {
     return new Promise((resolve, reject) => {
       const req = https.get(url, res => {
-        // 4xx/5xx 直接失败，避免把错误页当数据交给调用方 JSON.parse
         if (res.statusCode && res.statusCode >= 400) {
-          res.resume(); // 释放响应缓冲区
+          res.resume();
           req.destroy();
           reject(new Error(`HTTP ${res.statusCode}: ${MCP.maskApiKey(url)}`));
           return;
@@ -82,7 +76,6 @@ class MCP {
         });
       });
 
-      // 超时后必须销毁请求，否则 socket 会一直挂着导致句柄泄漏
       req.setTimeout(timeoutMs, () => {
         req.destroy(new Error(`请求超时: ${MCP.maskApiKey(url)}`));
       });
@@ -93,9 +86,7 @@ class MCP {
     });
   }
 
-  // 地理编码 - 将地址转换为经纬度
   async geocode(address) {
-    // 地址清洗失败时退回原始地址，保证后面 catch 里也能拿到可用的 key
     let cleanedAddress = '';
     try {
       cleanedAddress = this.cleanAddress(address);
@@ -108,8 +99,6 @@ class MCP {
     }
 
     try {
-      // 同一地址短时间内直接复用结果，避免重复打高德
-      // key 带上城市上下文，避免"白云山"这类重名地点跨城合并
       const cacheKey = `${cleanedAddress}|${this.extractCityName(
         cleanedAddress
       )}`;
@@ -121,14 +110,12 @@ class MCP {
         this.geocodeCache.delete(cacheKey);
       }
 
-      // 尝试多种地址格式
       const variations = this
         .generateAddressVariations(cleanedAddress)
         .slice(0, MAX_ADDRESS_VARIATIONS);
 
       for (const variation of variations) {
         try {
-          // 提取城市名称作为city参数
           const cityName = this.extractCityName(variation);
           const encodedAddress = encodeURIComponent(variation);
           const encodedCity = encodeURIComponent(cityName);
@@ -152,7 +139,6 @@ class MCP {
             return geo;
           }
         } catch (error) {
-          // 单个变体失败，继续尝试下一个
           console.log(
             `地理编码变体失败: ${variation}`,
             error && error.message ? error.message : error
@@ -160,19 +146,16 @@ class MCP {
         }
       }
 
-      // 所有变体都失败，尝试使用城市名称进行地理编码
       const fallback = await this.geocodeByCity(cleanedAddress);
       this.rememberGeocode(cacheKey, fallback);
       return fallback;
     } catch (error) {
-      // 兜底走城市名查询，同样写缓存：否则持续失败的地址每次请求都会再打一次接口
       const fallback = await this.geocodeByCity(cleanedAddress);
       this.rememberGeocode(cacheKey, fallback);
       return fallback;
     }
   }
 
-  // 标准化并清理地址格式：移除括号内容与多余空格
   cleanAddress(address) {
     if (typeof address !== 'string') {
       return '';
@@ -184,7 +167,6 @@ class MCP {
       .trim();
   }
 
-  // 缓存地理编码结果（含 null），避免同一地址反复打高德；超容量时淘汰最旧一项
   rememberGeocode(key, value) {
     if (this.geocodeCache.size >= GEOCODE_CACHE_MAX) {
       const oldestKey = this.geocodeCache.keys().next().value;
@@ -196,11 +178,9 @@ class MCP {
     });
   }
 
-  // 生成地址变体：只保留"原地址 / 去后缀 / 加城市前缀"三类，数量恒定且可控
   generateAddressVariations(address) {
     const variations = [address];
 
-    // 去掉交通/场所类后缀，高德对裸地名命中率更高
     const matchedSuffix = ADDRESS_SUFFIXES.find(
       suffix => address.length > suffix.length && address.endsWith(suffix)
     );
@@ -211,12 +191,10 @@ class MCP {
       }
     }
 
-    // 城市前缀与裸地标互为补充：带城市的补裸地名，裸地名补城市
     const city = this.extractCityName(address);
     const cityPrefixMatch = address.match(/^(.+?[市区县]|北京|上海|天津|重庆)(.+)$/);
     if (cityPrefixMatch) {
       const rest = cityPrefixMatch[2].trim();
-      // 剩余部分过短或以行政区划字开头时不造变体，避免切出"市白云山"这类残缺名
       if (rest.length >= 2 && !/^[市区县镇]/.test(rest)) {
         variations.push(rest);
       }
@@ -224,14 +202,11 @@ class MCP {
       variations.push(`${city}${address}`);
     }
 
-    // 去重
     return [...new Set(variations)].filter(Boolean);
   }
 
-  // 通过城市名称进行地理编码
   async geocodeByCity(address) {
     try {
-      // 提取城市名称
       const cityName = this.extractCityName(address);
       if (!cityName) {
         return null;
@@ -263,19 +238,14 @@ class MCP {
     }
   }
 
-  // 区级adcode转城市级adcode
   getCityAdcode(adcode) {
     if (!adcode) return '440100';
     return DISTRICT_TO_CITY[adcode] || adcode.substring(0, 2) + '0000';
   }
 
-  // 提取城市名称
   extractCityName(address) {
-    // 尝试匹配城市名称
     for (const city of COMMON_CITIES) {
-      // 检查地址是否包含城市名，但不包含以该城市名为前缀的街道名
       if (address.includes(city)) {
-        // 检查是否是街道名
         const isStreetName = EXCLUDED_STREET_NAMES.some(
           (street) => street.includes(city) && address.includes(street)
         );
@@ -285,33 +255,26 @@ class MCP {
       }
     }
 
-    // 对于大学名称，尝试返回默认城市
     if (address.includes('大学')) {
       return '广州';
     }
 
-    // 尝试提取区/街道名称作为模糊匹配
     const districtMatch = address.match(/广州市(\w+区|\w+街道|\w+镇|\w+乡)/);
     if (districtMatch) {
       return '广州';
     }
 
-    // 默认返回原地址
     return address;
   }
 
-  // 标准化地址，处理别名和简称
   normalizeAddress(address) {
     if (!address) return address;
 
     let normalized = address.trim();
 
-    // 清理标点符号
     normalized = normalized.replace(/[，。！？；：]/g, '').trim();
 
-    // 地址别名映射
     const addressAliasMap = {
-      // 地铁站
       大学城南: '大学城南地铁站',
       大学城北: '大学城北地铁站',
       广州南站: '广州南地铁站',
@@ -322,7 +285,6 @@ class MCP {
       珠江新城: '珠江新城地铁站',
       天河客运站: '天河客运站地铁站',
 
-      // 地标建筑
       广州塔: '广州塔',
       小蛮腰: '广州塔',
       白云山: '白云山',
@@ -330,49 +292,41 @@ class MCP {
       北京路: '北京路步行街',
       上下九: '上下九步行街',
 
-      // 体育场馆
       体育场: '体育中心',
       体育馆: '体育中心',
       天河体育中心: '天河体育中心',
       广州体育中心: '广州体育中心',
       大湾区体育中心: '广州大湾区文化体育中心',
 
-      // 大学
       华工: '华南理工大学',
       华农: '华南农业大学',
       中大: '中山大学',
       华师: '华南师范大学',
       暨大: '暨南大学',
 
-      // 商业区
       天河城: '天河城',
       正佳广场: '正佳广场',
       太古汇: '太古汇',
       万菱汇: '万菱汇',
 
-      // 交通枢纽
       广州南站: '广州南站',
       广州东站: '广州东站',
       白云机场: '广州白云国际机场',
       南沙港: '广州南沙港',
 
-      // 公园
       越秀公园: '越秀公园',
       流花湖公园: '流花湖公园',
       麓湖公园: '麓湖公园',
       天河公园: '天河公园',
     };
 
-    // 尝试匹配别名
     for (const [alias, fullName] of Object.entries(addressAliasMap)) {
       if (normalized.includes(alias)) {
-        // 替换别名
         normalized = normalized.replace(alias, fullName);
         break;
       }
     }
 
-    // 处理常见的地址后缀
     const suffixMap = {
       地铁站: '地铁站',
       站: '地铁站',
@@ -475,29 +429,23 @@ class MCP {
       摊点: '摊点',
     };
 
-    // 清理多余的空格
     normalized = normalized.replace(/\s+/g, ' ').trim();
 
     return normalized;
   }
 
-  // 获取默认位置
   getDefaultLocation(address) {
-    // 尝试匹配城市名称
     for (const city in CITY_CENTERS) {
       if (address.includes(city)) {
         return CITY_CENTERS[city];
       }
     }
 
-    // 默认返回广州的位置
     return CITY_CENTERS['广州'];
   }
 
-  // 驾车路线规划
   async driving(origin, destination, extensions = 'all', strategy = 10) {
     try {
-      // extensions=all 获取完整信息，strategy=10 避免拥堵
       const url = `https://restapi.amap.com/v3/direction/driving?key=${this.apiKey}&origin=${origin.longitude},${origin.latitude}&destination=${destination.longitude},${destination.latitude}&extensions=${extensions}&strategy=${strategy}`;
 
       const data = await this.httpGet(url);
@@ -510,20 +458,17 @@ class MCP {
         result.route.paths.length > 0
       ) {
         const path = result.route.paths[0];
-        const duration = Math.round(path.duration / 60); // 转换为分钟
+        const duration = Math.round(path.duration / 60);
         const distance = path.distance;
-        // 优先使用API返回的通行费用，否则估算（油费约0.6元/km + 高速费约0.45元/km）
         const tolls =
           path.tolls !== undefined && path.tolls > 0
             ? path.tolls
             : Math.round((parseInt(distance) / 1000) * 1.05);
         const cost = tolls;
 
-        // 解析详细路线信息
         let roadNames = [];
         let trafficLights = 0;
         if (path.steps && path.steps.length > 0) {
-          // 提取途经道路名称（去重）
           const roads = new Set();
           path.steps.forEach((step) => {
             if (
@@ -534,9 +479,8 @@ class MCP {
               roads.add(step.road_name);
             }
           });
-          roadNames = Array.from(roads).slice(0, 5); // 只取前5条道路
+          roadNames = Array.from(roads).slice(0, 5);
 
-          // 统计红绿灯数量
           path.steps.forEach((step) => {
             if (step.traffic_lights !== undefined) {
               trafficLights += step.traffic_lights;
@@ -561,7 +505,6 @@ class MCP {
     }
   }
 
-  // 公交路线规划
   async transit(
     origin,
     destination,
@@ -570,10 +513,8 @@ class MCP {
     maxResults = 3
   ) {
     try {
-      // 使用城市名称而不是adcode，高德API期望城市名称如"广州"
       const city = originCity || '广州';
       const cityd = destinationCity || '广州';
-      // 添加 nightflag=0 避免夜间路线不同，strategy=10 避免拥堵
       const url = `https://restapi.amap.com/v3/direction/transit/integrated?key=${this.apiKey}&origin=${origin.longitude},${origin.latitude}&destination=${destination.longitude},${destination.latitude}&city=${encodeURIComponent(city)}&cityd=${encodeURIComponent(cityd)}&nightflag=0&strategy=10`;
       debug.log(` transit API URL: ${MCP.maskApiKey(url)}`);
 
@@ -586,42 +527,34 @@ class MCP {
         result.route.transits &&
         result.route.transits.length > 0
       ) {
-        // 返回前 maxResults 个方案
         const transitResults = [];
         const transitsToProcess = result.route.transits.slice(0, maxResults);
 
         transitsToProcess.forEach((transit, index) => {
-          const duration = Math.round(transit.duration / 60); // 转换为分钟
+          const duration = Math.round(transit.duration / 60);
           const distance = transit.distance;
-          const cost = transit.cost && transit.cost !== '' ? transit.cost : 2; // 默认费用
+          const cost = transit.cost && transit.cost !== '' ? transit.cost : 2;
 
-          // 解析步行时间
           let totalWalkingTime = 0;
           let totalWalkingDistance = 0;
           const walkingDetails = [];
 
-          // 解析地铁线路详情
           const metroLines = [];
           const metroDetails = [];
 
-          // 构建转车信息
           const segments = [];
           const structuredSteps = [];
           if (transit.segments) {
             transit.segments.forEach((segment) => {
-              // 处理步行段
               if (segment.walking) {
-                // 注意：duration 可能是秒或毫秒，需要判断
                 let walkDist = parseInt(segment.walking.distance) || 0;
                 let walkTime = parseInt(segment.walking.duration) || 0;
 
-                // 如果时间值过大（超过1000000秒），可能是毫秒
                 if (walkTime > 1000000) {
-                  walkTime = Math.round(walkTime / 1000); // 转换为秒
+                  walkTime = Math.round(walkTime / 1000);
                 }
-                // 如果距离值过大，可能是以厘米为单位
                 if (walkDist > 100000) {
-                  walkDist = Math.round(walkDist / 100); // 转换为米
+                  walkDist = Math.round(walkDist / 100);
                 }
 
                 totalWalkingDistance += walkDist;
@@ -633,13 +566,11 @@ class MCP {
                   );
                 }
 
-                // 检查是否是最后一段步行
                 const isLastSegment =
                   transit.segments.indexOf(segment) ===
                   transit.segments.length - 1;
                 if (isLastSegment) {
                   segments.push(`步行${walkDist}米到目的地`);
-                  // 添加结构化步行步骤
                   structuredSteps.push({
                     type: 'walk',
                     distance_meters: walkDist,
@@ -648,7 +579,6 @@ class MCP {
                   });
                 } else if (walkDist > 50) {
                   segments.push(`步行${walkDist}米到车站`);
-                  // 添加结构化步行步骤
                   structuredSteps.push({
                     type: 'walk',
                     distance_meters: walkDist,
@@ -658,12 +588,10 @@ class MCP {
                 }
               }
 
-              // 处理公交段
               if (segment.bus) {
                 segment.bus.buslines.forEach((busline) => {
                   let name = busline.name || '未知线路';
 
-                  // 处理 passStops
                   let passStops = '若干';
                   if (busline.via_num && busline.via_num > 0) {
                     passStops = busline.via_num;
@@ -678,11 +606,9 @@ class MCP {
                     }
                   }
 
-                  // 检查是否为地铁
                   if (name.includes('地铁')) {
                     const startStop = busline.departure_stop?.name || '起点站';
                     const endStop = busline.arrival_stop?.name || '终点站';
-                    // 清理格式，避免重复添加"地铁"前缀
                     const lineName = name
                       .replace(/^[地铁\s]+/, '')
                       .replace(/[`#*_[\]]/g, '');
@@ -696,7 +622,6 @@ class MCP {
                       end: endStop,
                       stops: passStops,
                     });
-                    // 添加结构化地铁步骤
                     structuredSteps.push({
                       type: 'metro',
                       line: lineName,
@@ -706,7 +631,6 @@ class MCP {
                       stops: passStops,
                     });
                   } else if (name !== '未知线路' && !name.includes('城际')) {
-                    // 普通公交
                     if (!name.includes('(') && !name.includes('（')) {
                       const startStop =
                         busline.departure_stop?.name || '起点站';
@@ -714,7 +638,6 @@ class MCP {
                       segments.push(
                         `公交${name}(${startStop}→${endStop})，经过${passStops}站`
                       );
-                      // 添加结构化公交步骤
                       structuredSteps.push({
                         type: 'bus',
                         line: name,
@@ -725,7 +648,6 @@ class MCP {
                       });
                     } else {
                       segments.push(`公交${name}，经过${passStops}站`);
-                      // 添加结构化公交步骤
                       structuredSteps.push({
                         type: 'bus',
                         line: name,
@@ -739,7 +661,6 @@ class MCP {
                 });
               }
 
-              // 处理铁路段
               if (segment.railway) {
                 const name = segment.railway.name || '未知线路';
                 if (name !== '未知线路') {
@@ -754,7 +675,6 @@ class MCP {
                   segments.push(
                     `火车${name}(${startStation}→${arrivalStation})，经过${viaNum}站`
                   );
-                  // 添加结构化铁路步骤
                   structuredSteps.push({
                     type: 'railway',
                     line: name,
@@ -768,11 +688,9 @@ class MCP {
             });
           }
 
-          // 计算乘车时间（总时间 - 步行时间）
           const ridingTime = Math.max(0, transit.duration - totalWalkingTime);
           const ridingTimeMinutes = Math.round(ridingTime / 60);
 
-          // 检查是否包含地铁
           let type = '公交';
           let recommendedReason = '';
           if (metroLines.length > 0) {
@@ -784,30 +702,23 @@ class MCP {
             }
           }
 
-          // 计算估算费用（基于距离）
           let estimatedCost = 2;
           const distanceKm = parseInt(distance) / 1000;
           const metroCount = metroLines.length;
 
           if (metroCount > 0) {
-            // 地铁：起步 2 元，之后每公里约 0.45 元
-            // 125 公里 × 0.45 ≈ 56 元，但地铁有封顶（广州地铁最高约 20 元）
             estimatedCost = 2 + Math.floor(distanceKm * 0.45);
-            // 限制最大金额（长途地铁通常不超过 25 元）
             if (estimatedCost > 25) estimatedCost = 25;
             if (estimatedCost < 2) estimatedCost = 2;
           } else {
-            // 公交：起步 2 元，每公里约 0.25 元，最高 8 元
             estimatedCost = 2 + Math.floor(distanceKm * 0.25);
             if (estimatedCost > 8) estimatedCost = 8;
             if (estimatedCost < 2) estimatedCost = 2;
           }
 
-          // 优先使用 API 返回的费用，否则使用估算值
           let displayCost = '¥2';
           let originalCost = null;
 
-          // 尝试获取 API 返回的费用
           if (cost && !isNaN(cost) && cost > 0) {
             originalCost = parseInt(cost);
             displayCost = `¥${originalCost}`;
@@ -820,26 +731,22 @@ class MCP {
             displayCost = `¥${originalCost}`;
           }
 
-          // 如果 API 返回的费用明显不合理（低于估算值太多），使用估算值
           if (
             originalCost &&
             originalCost < estimatedCost * 0.5 &&
             distanceKm > 20
           ) {
-            // 长途路线 API 费用异常低时，使用估算值
             displayCost = `¥${estimatedCost}`;
             console.log(
               `费用估算: API返回¥${originalCost}，估算¥${estimatedCost}，使用估算值`
             );
           } else if (!originalCost || originalCost <= 0) {
-            // API 没有返回费用，使用估算值
             displayCost = `¥${estimatedCost}`;
             console.log(
               `费用估算: 距离${distanceKm.toFixed(1)}公里，${metroCount}条地铁，估算¥${estimatedCost}`
             );
           }
 
-          // 构建分段时间详情
           const timeBreakdown = [];
           if (walkingDetails.length > 0) {
             timeBreakdown.push(...walkingDetails);
@@ -878,7 +785,6 @@ class MCP {
     }
   }
 
-  // 步行路线规划
   async walking(origin, destination) {
     try {
       const url = `https://restapi.amap.com/v3/direction/walking?key=${this.apiKey}&origin=${origin.longitude},${origin.latitude}&destination=${destination.longitude},${destination.latitude}`;
@@ -893,7 +799,7 @@ class MCP {
         result.route.paths.length > 0
       ) {
         const path = result.route.paths[0];
-        const duration = Math.round(path.duration / 60); // 转换为分钟
+        const duration = Math.round(path.duration / 60);
         const distance = path.distance;
 
         return {
@@ -910,7 +816,6 @@ class MCP {
     }
   }
 
-  // 骑行路线规划
   async bicycling(origin, destination) {
     try {
       const url = `https://restapi.amap.com/v3/direction/bicycling?key=${this.apiKey}&origin=${origin.longitude},${origin.latitude}&destination=${destination.longitude},${destination.latitude}`;
@@ -925,7 +830,7 @@ class MCP {
         result.route.paths.length > 0
       ) {
         const path = result.route.paths[0];
-        const duration = Math.round(path.duration / 60); // 转换为分钟
+        const duration = Math.round(path.duration / 60);
         const distance = path.distance;
 
         return {
@@ -942,9 +847,8 @@ class MCP {
     }
   }
 
-  // 计算两点之间的直线距离（单位：公里）
   calculateDistance(origin, destination) {
-    const R = 6371; // 地球半径（公里）
+    const R = 6371;
     const dLat = this.deg2rad(destination.latitude - origin.latitude);
     const dLon = this.deg2rad(destination.longitude - origin.longitude);
     const a =
@@ -958,21 +862,17 @@ class MCP {
     return distance;
   }
 
-  // 角度转弧度
   deg2rad(deg) {
     return deg * (Math.PI / 180);
   }
 
-  // 获取城市之间的距离（单位：公里）
   getCityDistance(originCity, destinationCity) {
-    // 尝试匹配正向和反向
     const key1 = `${originCity}-${destinationCity}`;
     const key2 = `${destinationCity}-${originCity}`;
 
-    return CITY_DISTANCES[key1] || CITY_DISTANCES[key2] || 100; // 默认100公里
+    return CITY_DISTANCES[key1] || CITY_DISTANCES[key2] || 100;
   }
 
-  // 路线规划主方法
   async getDirections(
     originAddress,
     destinationAddress,
@@ -985,21 +885,17 @@ class MCP {
     debug.log('[DEBUG] originCoord:', originCoord);
     debug.log('[DEBUG] destCoord:', destCoord);
     try {
-      // 提取城市名称用于后续处理
       const originCity = this.extractCityName(originAddress);
       const destinationCity = this.extractCityName(destinationAddress);
 
-      // 判断是否为同城
       const isSameCity = originCity === destinationCity;
 
-      // 获取主要交通枢纽（根据地址关键词选择正确的枢纽）
       const originHub = this.getMainTransportHub(originCity, originAddress);
       const destinationHub = this.getMainTransportHub(
         destinationCity,
         destinationAddress
       );
 
-      // 打印城市信息
       debug.log(
         ` 提取城市: originCity=${originCity}, destinationCity=${destinationCity}`
       );
@@ -1008,18 +904,15 @@ class MCP {
         ` 交通枢纽: originHub=${JSON.stringify(originHub)}, destinationHub=${JSON.stringify(destinationHub)}`
       );
 
-      // 构建路线数据
       const directions = [];
 
-      // 长途出行处理：根据城市名判断是否需要高铁和飞机方案
       const cityDistance = this.getCityDistance(originCity, destinationCity);
       debug.log(` 城市间距离: ${cityDistance}km`);
 
       if (cityDistance >= 500) {
         debug.log('[DEBUG] 长途出行，生成高铁和飞机方案');
-        // 高铁方案
-        const trainDuration = Math.round((cityDistance / 250) * 60); // 平均速度250km/h（考虑停站）
-        const trainCost = Math.round(cityDistance * 0.55); // 每公里0.55元（更接近实际票价）
+        const trainDuration = Math.round((cityDistance / 250) * 60);
+        const trainCost = Math.round(cityDistance * 0.55);
         directions.push({
           type: '高铁',
           duration: `${trainDuration}分钟`,
@@ -1051,10 +944,9 @@ class MCP {
           ],
         });
 
-        // 飞机方案
-        const flightDuration = Math.round((cityDistance / 650) * 60); // 实际飞行时间（平均速度650km/h，更接近实际）
-        const totalFlightDuration = 120 + flightDuration + 30; // 飞行 + 机场准备 + 出机场
-        const flightCost = Math.round(200 + cityDistance * 0.35); // 基础费用200元 + 每公里0.35元
+        const flightDuration = Math.round((cityDistance / 650) * 60);
+        const totalFlightDuration = 120 + flightDuration + 30;
+        const flightCost = Math.round(200 + cityDistance * 0.35);
         directions.push({
           type: '飞机',
           duration: `${totalFlightDuration}分钟`,
@@ -1087,7 +979,6 @@ class MCP {
         });
       }
 
-      // 使用真实的地理编码 API 获取经纬度
       let origin = originCoord;
       let destination = destCoord;
 
@@ -1106,7 +997,6 @@ class MCP {
       }
       debug.log('[DEBUG] 地理编码完成');
 
-      // 如果地理编码失败，尝试使用降级坐标
       if (!origin) {
         debug.log('[DEBUG] 起点地理编码失败，尝试使用降级坐标');
         origin = this.getDefaultLocation(originAddress);
@@ -1127,24 +1017,19 @@ class MCP {
         }
       }
 
-      // 如果仍然没有坐标，返回空数组
       if (!origin || !destination) {
         debug.log('[DEBUG] 地理编码失败且无法获取降级坐标，返回空数组');
         return [];
       }
 
-      // 计算两点之间的直线距离（单位：公里）
       const distance = this.calculateDistance(origin, destination);
       debug.log(` 直线距离计算: ${distance}km`);
       debug.log(` 起点坐标: ${origin.longitude}, ${origin.latitude}`);
       debug.log(` 终点坐标: ${destination.longitude}, ${destination.latitude}`);
 
-      // 距离合理性校验
-      // 同城距离不应超过 200 公里（广州城市跨度约 150km）
       if (isSameCity && distance > 200) {
         console.log(`[WARN] 同城距离异常: ${distance}km，可能是地理编码错误`);
       }
-      // 跨市距离不应超过 500 公里
       if (
         !isSameCity &&
         this.isSameProvince(originAddress, destinationAddress) &&
@@ -1152,7 +1037,6 @@ class MCP {
       ) {
         console.log(`[WARN] 跨市距离异常: ${distance}km`);
       }
-      // 跨省距离不应超过 3000 公里
       if (
         !this.isSameProvince(originAddress, destinationAddress) &&
         distance > 3000
@@ -1160,8 +1044,6 @@ class MCP {
         console.log(`[WARN] 跨省距离异常: ${distance}km`);
       }
 
-      // 调用各种交通方式的路线规划 API
-      // 驾车：总是尝试调用，无论距离如何
       debug.log('[DEBUG] 调用驾车 API');
       try {
         const drivingResult = await this.driving(
@@ -1172,21 +1054,18 @@ class MCP {
         );
         debug.log('[DEBUG] 驾车结果:', drivingResult);
         if (drivingResult) {
-          // 校验驾车距离合理性
           const drivingDistance = parseInt(drivingResult.distance) / 1000;
           debug.log(` 驾车距离: ${drivingDistance}km, 直线距离: ${distance}km`);
 
-          // 对于同城短距离出行，允许更大的距离倍数，因为城市中驾车往往需要绕路
           let maxDistanceRatio = 1.5;
           if (isSameCity && distance < 10) {
-            maxDistanceRatio = 3; // 同城短距离允许更大的绕路
+            maxDistanceRatio = 3;
           } else if (isSameCity) {
-            maxDistanceRatio = 2; // 同城允许一定绕路
+            maxDistanceRatio = 2;
           }
 
           debug.log(` 阈值: ${distance * maxDistanceRatio}km`);
           if (drivingDistance <= distance * maxDistanceRatio) {
-            // 为驾车方案添加 structuredSteps
             if (!drivingResult.structuredSteps) {
               drivingResult.structuredSteps = [
                 {
@@ -1208,9 +1087,7 @@ class MCP {
         debug.error('[DEBUG] 驾车 API 调用失败:', error.message);
       }
 
-      // 公交（如果距离小于500公里，同城总是调用）
       if (isSameCity || distance < 500) {
-        // 使用城市名称进行公交查询（高德API期望城市名称如"广州"，而不是adcode）
         debug.log('[DEBUG] 调用公交 API');
         let transitResults = null;
 
@@ -1223,10 +1100,8 @@ class MCP {
           );
           debug.log('[DEBUG] 公交结果:', transitResults);
 
-          // 同城出行强化：如果公交API返回空，尝试简化地址重新查询
           if ((!transitResults || transitResults.length === 0) && isSameCity) {
             debug.log('[DEBUG] 公交 API 返回空，尝试简化地址重新查询');
-            // 简化地址，只保留主要信息（如地铁站名）
             const simplifiedOrigin = originAddress.replace(
               /.*(\w+地铁站).*/,
               '$1'
@@ -1261,10 +1136,8 @@ class MCP {
             }
           }
 
-          // 添加公交方案（可能是多个）
           if (transitResults && transitResults.length > 0) {
             transitResults.forEach((transit, index) => {
-              // 第一个地铁方案标记为推荐
               if (
                 transit.metroLines &&
                 transit.metroLines.length > 0 &&
@@ -1275,7 +1148,6 @@ class MCP {
               directions.push(transit);
             });
           } else if (isSameCity) {
-            // 同城出行但公交查询失败，添加提示
             debug.log('[DEBUG] 同城出行公交查询失败，添加提示信息');
             directions.push({
               type: '公共交通',
@@ -1292,7 +1164,6 @@ class MCP {
         } catch (error) {
           debug.error('[DEBUG] 公交 API 调用失败:', error.message);
           if (isSameCity) {
-            // 同城出行但公交查询失败，添加提示
             directions.push({
               type: '公共交通',
               duration: '未知',
@@ -1312,7 +1183,6 @@ class MCP {
         );
       }
 
-      // 骑行（如果距离小于50公里）
       if (distance < 50) {
         debug.log('[DEBUG] 调用骑行 API');
         try {
@@ -1330,7 +1200,6 @@ class MCP {
         );
       }
 
-      // 步行（如果距离小于10公里）
       if (distance < 10) {
         debug.log('[DEBUG] 调用步行 API');
         try {
@@ -1348,59 +1217,45 @@ class MCP {
 
       debug.log(` 最终路线方案数量: ${directions.length}`);
 
-      // 如果所有 API 调用都失败，返回空数组（不返回模拟数据）
       if (directions.length === 0) {
         return [];
       }
 
       return directions;
     } catch (error) {
-      // 发生错误时返回空数组
       debug.error('[DEBUG] getDirections 发生错误:', error.message || error);
       debug.error('[DEBUG] 错误堆栈:', error.stack);
       return [];
     }
   }
 
-  // 根据坐标获取路线规划
   async getDirectionsByCoordinates(originCoord, destCoord) {
     try {
-      // 解析坐标（支持对象和字符串两种格式）
       let origin, destination;
       if (
         typeof originCoord === 'object' &&
         originCoord.longitude &&
         originCoord.latitude
       ) {
-        // 如果是对象格式
         origin = originCoord;
         destination = destCoord;
       } else {
-        // 如果是字符串格式
         const [originLon, originLat] = originCoord.split(',').map(Number);
         const [destLon, destLat] = destCoord.split(',').map(Number);
         origin = { longitude: originLon, latitude: originLat };
         destination = { longitude: destLon, latitude: destLat };
       }
 
-      // 计算两点之间的直线距离（单位：公里）
       const distance = this.calculateDistance(origin, destination);
 
-      // 说明：此处原先硬编码了一对固定城市并据此取交通枢纽，得到的位置
-      // 与实际传入坐标无关；而这两个枢纽变量在下面的各交通方式中并未被
-      // 使用，属于误导性死代码，故移除。
-      // 若日后需要按城市生成长途方案，应先通过逆地理编码反查真实城市名。
 
-      // 构建路线数据
       const directions = [];
 
-      // 调用各种交通方式的路线规划 API
       const drivingResult = await this.driving(origin, destination, 'all', 10);
       if (drivingResult) {
         directions.push(drivingResult);
       }
 
-      // 公交（如果距离小于500公里）
       if (distance < 500) {
         const transitResults = await this.transit(
           origin,
@@ -1415,7 +1270,6 @@ class MCP {
         }
       }
 
-      // 骑行（如果距离小于50公里）
       if (distance < 50) {
         const bicyclingResult = await this.bicycling(origin, destination);
         if (bicyclingResult) {
@@ -1423,7 +1277,6 @@ class MCP {
         }
       }
 
-      // 步行（如果距离小于10公里）
       if (distance < 10) {
         const walkingResult = await this.walking(origin, destination);
         if (walkingResult) {
@@ -1431,21 +1284,17 @@ class MCP {
         }
       }
 
-      // 如果所有 API 调用都失败，返回空数组（不返回模拟数据）
       if (directions.length === 0) {
         return [];
       }
 
       return directions;
     } catch (error) {
-      // 发生错误时返回空数组
       return [];
     }
   }
 
-  // 获取城市中心坐标（用于地理编码失败时的降级方案）
   getDefaultLocation(address) {
-    // 提取城市名称
     const cityName = this.extractCityName(address);
     const cityCenter = CITY_CENTERS[cityName];
     return cityCenter
@@ -1453,7 +1302,6 @@ class MCP {
       : null;
   }
 
-  // 获取主要交通枢纽
   getMainTransportHub(city, address) {
     const hub = TRANSPORT_HUBS[city];
     if (hub) {
@@ -1471,9 +1319,7 @@ class MCP {
     };
   }
 
-  // 判断两个地址是否在同一个省份
   isSameProvince(address1, address2) {
-    // 简单实现：检查地址中是否包含相同的省份名称
     for (const province of PROVINCES) {
       if (address1.includes(province) && address2.includes(province)) {
         return true;
@@ -1483,7 +1329,6 @@ class MCP {
     return false;
   }
 
-  // POI周边搜索
   async searchNearby(location, keywords, radius = 500, limit = 5) {
     try {
       if (!location || !location.longitude || !location.latitude) {

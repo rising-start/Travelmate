@@ -1,6 +1,5 @@
-/**
- * ESLint 配置
- */
+
+
 
 module.exports = {
   env: {
@@ -18,7 +17,6 @@ module.exports = {
     sourceType: 'module'
   },
   rules: {
-    // 基本规则
     'no-console': 'warn',
     'no-unused-vars': 'warn',
     'no-undef': 'error',

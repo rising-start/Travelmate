@@ -1,7 +1,5 @@
-/**
- * 路线规划实现收敛测试
- * RouteSkill 是路线规划的唯一实现；multiTurn 不再自带 handlePlanRoute
- */
+
+
 
 const MultiTurnTravelAssistant = require('../../src/core/multiTurnTravelAssistant');
 const RouteSkill = require('../../src/skills/RouteSkill');
@@ -21,7 +19,6 @@ describe('路线规划实现收敛', () => {
 
   it('should detect route requests', () => {
     expect(assistant.isRouteRequest('从广州到深圳怎么走')).toBe(true);
-    // 只含 POI/天气意图或只有目的地时不能判定为路线，否则会吞掉后续兜底
     expect(assistant.isRouteRequest('这附近有没有地铁站')).toBe(false);
     expect(assistant.isRouteRequest('广州天气怎么样')).toBe(false);
     expect(assistant.isRouteRequest('去北京')).toBe(false);

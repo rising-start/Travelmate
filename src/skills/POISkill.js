@@ -1,17 +1,13 @@
-/**
- * POISkill - 处理周边搜索相关功能
- */
+
+
 
 class POISkill {
   constructor(mcp) {
     this.mcp = mcp;
   }
 
-  /**
-   * 标准化关键词
-   * @param {string} keywords - 关键词
-   * @returns {string} - 标准化后的关键词
-   */
+  
+
   normalizeKeywords(keywords) {
     if (!keywords) return '地点';
 
@@ -33,14 +29,8 @@ class POISkill {
     return keywords;
   }
 
-  /**
-   * 搜索并处理 fallback
-   * @param {string} center - 中心点
-   * @param {string} keywords - 关键词
-   * @param {number} radius - 半径
-   * @param {number} limit - 限制
-   * @returns {Promise<Array>} - 搜索结果
-   */
+  
+
   async searchWithFallback(center, keywords, radius, limit) {
     const geo = await this.mcp.geocode(center);
     if (!geo) return [];
@@ -55,13 +45,8 @@ class POISkill {
     return pois;
   }
 
-  /**
-   * 格式化POI回答
-   * @param {Array} pois - POI列表
-   * @param {string} center - 中心点
-   * @param {string} keywords - 关键词
-   * @returns {string} - 格式化的回答
-   */
+  
+
   formatPoiAnswer(pois, center, keywords) {
     if (pois.length === 0) {
       return (
@@ -85,17 +70,12 @@ class POISkill {
     return answer;
   }
 
-  /**
-   * 执行POI搜索技能
-   * @param {Object} params - 参数
-   * @param {Object} session - 会话对象
-   * @returns {Promise<Object>} - 执行结果
-   */
+  
+
   async execute(params, session) {
     try {
       let { center, keywords, radius = 500, limit = 10 } = params;
 
-      // 从原始消息提取中心点
       if (!center && params.originalMessage) {
         const match = params.originalMessage.match(/(.+?)(?:附近|周边|周围)/);
         if (match && match[1]) {
@@ -103,15 +83,12 @@ class POISkill {
         }
       }
 
-      // 优先使用坐标作为中心点
       let pois;
       const lat = session.currentLat;
       const lng = session.currentLng;
 
-      // 处理关键词
       keywords = this.normalizeKeywords(keywords);
 
-      // 关键：只有当用户输入无法解析出任何地点线索时，才回退到GPS
       const hasLocationContext =
         center ||
         session.getLastSearchedLocation() ||
@@ -120,17 +97,14 @@ class POISkill {
         session.getLastOrigin();
 
       if (!hasLocationContext && lat && lng) {
-        // 无任何地点上下文时才用GPS
         pois = await this.mcp.searchNearby(
           { latitude: lat, longitude: lng },
           keywords,
           radius,
           limit
         );
-        // 使用当前位置作为中心点显示
         center = session.getCurrentLocation() || '当前位置';
       } else {
-        // 有上下文时，走地名搜索逻辑（会自然使用历史地点）
         if (!center) {
           center = session.getBestLocationForContext(
             params.originalMessage || ''
@@ -143,11 +117,9 @@ class POISkill {
         pois = await this.searchWithFallback(center, keywords, radius, limit);
       }
 
-      // 只显示前5个结果
       const displayResults = pois.slice(0, 5);
       const answer = this.formatPoiAnswer(displayResults, center, keywords);
 
-      // 保存所有结果并设置索引为5（已显示5个）
       session.setLastPoiResults(pois);
       session.setLastPoiIndex(5);
       session.setLastPoiKeywords(keywords);
@@ -180,11 +152,8 @@ class POISkill {
     }
   }
 
-  /**
-   * 询问用户地点
-   * @param {Object} session - 会话对象
-   * @returns {Object} - 询问结果
-   */
+  
+
   async askUserLocation(session) {
     session.pendingField = 'center';
     return {

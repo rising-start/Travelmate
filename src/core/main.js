@@ -15,7 +15,6 @@ class TravelAssistant {
     this.routeSkill = new RouteSkill(this.mcp, this.weatherService);
   }
 
-  // 从"从 X 到 Y"这类输入里取起点与终点，取不到时返回 null
   parseRouteEndpoints(input) {
     const text = typeof input === 'string' ? input : '';
     const fromMatch = text.match(/从\s*(.+?)\s*(?:到|去)\s*(.+)/);
@@ -29,8 +28,6 @@ class TravelAssistant {
     return { origin: null, destination: null };
   }
 
-  // 必须同时解析出起点与终点，且形如"从X到Y"或带路线关键词才算路线请求：
-  // 只按"到/去"切分会把"我想去北京玩"这类句子误吞成路线请求
   isRouteRequest(input) {
     const { origin, destination } = this.parseRouteEndpoints(input);
     if (!origin || !destination) {
@@ -46,7 +43,6 @@ class TravelAssistant {
 
   async planRoute(origin, destination) {
     try {
-      // 1. 获取地理编码
       const geoOrigin = await this.mcp.geocode(origin);
       const geoDest = await this.mcp.geocode(destination);
 
@@ -57,14 +53,9 @@ class TravelAssistant {
         };
       }
 
-      // 2. 获取天气信息
       const originWeather = await this.weatherService.getWeatherByCityName(origin);
       const destWeather = await this.weatherService.getWeatherByCityName(destination);
 
-      // 3. 规划路线
-      // getDirections 签名为 (originAddress, destinationAddress, originCoord, destCoord)，
-      // 旧代码把坐标对象当地址传入、把 'car'/'walk' 当 coord，导致一律抛错返回 []。
-      // 该方法一次返回全部交通方式，这里按 type 字段分组。
       const directions = await this.mcp.getDirections(
         origin,
         destination,
@@ -81,10 +72,8 @@ class TravelAssistant {
         cycling: pickFirst('骑行')
       };
 
-      // 4. 生成天气建议
       const weatherAdvice = WeatherAdvice.getAdvice(originWeather, destWeather);
 
-      // 5. 整合结果
       const result = {
         success: true,
         origin: {
@@ -115,7 +104,6 @@ class TravelAssistant {
 
   async processUserInput(input) {
     try {
-      // 路线请求统一交给 RouteSkill：llm.reactLoop 不再自己拼路线结果
       if (this.isRouteRequest(input)) {
         const { origin, destination } = this.parseRouteEndpoints(input);
         const session = new ConversationSession(`process-${Date.now()}`);
@@ -124,7 +112,6 @@ class TravelAssistant {
             { origin, destination, originalMessage: input },
             session
           );
-          // 只有真正拿到路线结果才返回，否则回落到 LLM 工具循环
           if (
             routeResult &&
             routeResult.answer &&
@@ -141,7 +128,6 @@ class TravelAssistant {
         }
       }
 
-      // 使用LLM处理用户输入
       const llmResult = await this.llmService.reactLoop(input, {
         geocode: this.mcp.geocode.bind(this.mcp),
         get_directions: this.mcp.getDirections.bind(this.mcp),
@@ -177,7 +163,6 @@ class TravelAssistant {
 
   async searchNearby(location, keywords, radius = 1000, limit = 10) {
     try {
-      // 获取地理编码
       const geoLocation = await this.mcp.geocode(location);
       if (!geoLocation) {
         return {
@@ -186,7 +171,6 @@ class TravelAssistant {
         };
       }
 
-      // 搜索周边
       const pois = await this.mcp.searchNearby(
         geoLocation,
         keywords,

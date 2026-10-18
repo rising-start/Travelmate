@@ -1,6 +1,5 @@
-/**
- * MCP 地理编码测试：验证变体数量上限、不再篡改地名、结果缓存
- */
+
+
 
 const MCP = require('../../src/services/mcp');
 
@@ -67,7 +66,6 @@ describe('MCP.geocode 请求治理', () => {
 
     await mcp.geocode('广州白云山风景名胜区');
 
-    // 变体数受 ADDRESS_SUFFIXES 与城市变体约束（当前最多 3 个），外加一次城市兜底
     expect(spy.mock.calls.length).toBeGreaterThan(0);
     expect(spy.mock.calls.length).toBeLessThanOrEqual(3);
     expect(fallbackSpy).toHaveBeenCalledTimes(1);

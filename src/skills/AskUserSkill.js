@@ -1,14 +1,9 @@
-/**
- * AskUserSkill - 处理询问用户功能
- */
+
+
 
 class AskUserSkill {
-  /**
-   * 执行询问用户技能
-   * @param {Object} params - 参数
-   * @param {Object} session - 会话对象
-   * @returns {Object} - 执行结果
-   */
+  
+
   async execute(params, session) {
     try {
       const { question, missing_field } = params;

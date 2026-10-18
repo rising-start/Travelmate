@@ -1,18 +1,13 @@
-/**
- * WeatherSkill - 处理天气查询相关功能
- */
+
+
 
 class WeatherSkill {
   constructor(weather) {
     this.weather = weather;
   }
 
-  /**
-   * 获取降级建议
-   * @param {string} location - 地点
-   * @param {string} time - 时间
-   * @returns {string} - 降级建议
-   */
+  
+
   getFallbackAdvice(location, time) {
     const timeText = time || '今天';
     return (
@@ -24,13 +19,8 @@ class WeatherSkill {
     );
   }
 
-  /**
-   * 格式化天气回答
-   * @param {Object} weather - 天气信息
-   * @param {string} location - 地点
-   * @param {string} time - 时间
-   * @returns {string} - 格式化的天气回答
-   */
+  
+
   formatWeatherAnswer(weather, location, time) {
     const w = weather;
     const timeText = time ? `${time}的` : '当前';
@@ -42,16 +32,11 @@ class WeatherSkill {
     );
   }
 
-  /**
-   * 执行天气查询技能
-   * @param {Object} params - 参数
-   * @param {Object} session - 会话对象
-   * @returns {Promise<Object>} - 执行结果
-   */
+  
+
   async execute(params, session) {
     let { location, locations, time, multi_location } = params;
 
-    // 如果是多地点查询
     if (multi_location && locations && locations.length > 0) {
       const weatherResults = [];
       for (const loc of locations) {
@@ -105,7 +90,6 @@ class WeatherSkill {
       };
     }
 
-    // 原有的单地点逻辑保持不变
     let targetLocation = location;
     if (!targetLocation) {
       targetLocation =
@@ -141,7 +125,6 @@ class WeatherSkill {
         answer += `- ${item}\n`;
       });
 
-      // 添加自然语言建议（亲切、带表情）
       const naturalAdvice = this.weather.generateNaturalLanguageAdvice(
         weather,
         targetLocation
@@ -159,11 +142,8 @@ class WeatherSkill {
     };
   }
 
-  /**
-   * 询问用户地点
-   * @param {Object} session - 会话对象
-   * @returns {Object} - 询问结果
-   */
+  
+
   async askUserLocation(session) {
     session.pendingField = 'location';
     return {

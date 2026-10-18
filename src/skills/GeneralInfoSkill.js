@@ -1,18 +1,13 @@
-/**
- * GeneralInfoSkill - 处理通用信息查询功能
- */
+
+
 
 class GeneralInfoSkill {
   constructor(mcp) {
     this.mcp = mcp;
   }
 
-  /**
-   * 执行通用信息查询技能
-   * @param {Object} params - 参数
-   * @param {Object} session - 会话对象
-   * @returns {Promise<Object>} - 执行结果
-   */
+  
+
   async execute(params, session) {
     try {
       const { question, location } = params;

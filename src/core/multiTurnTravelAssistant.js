@@ -17,14 +17,11 @@ const {
   sanitizeInstructionParams,
 } = require('../utils/inputGuard');
 
-/**
- * MultiTurnTravelAssistant - 多轮旅行助手核心类
- * 处理用户输入，协调各个技能模块，提供智能旅行相关服务
- */
+
+
 class MultiTurnTravelAssistant {
-  /**
-   * 构造函数
-   */
+  
+
   constructor() {
     this.llm = new LLMService();
     this.mcp = new MCPService();
@@ -34,15 +31,10 @@ class MultiTurnTravelAssistant {
     this.sessionManager.startCleanupTimer();
   }
 
-  /**
-   * 处理用户输入
-   * @param {string} userInput - 用户输入的文本
-   * @param {string} sessionId - 会话ID，默认为'default'
-   * @returns {Promise<Object>} - 处理结果，包含thought、answer、responseTime等字段
-   */
+  
+
   async processUserInput(userInput, sessionId = 'default') {
     const startTime = Date.now();
-    // 入口防御：输入统一收敛为受控长度的字符串，避免畸形 payload 打穿后续逻辑
     userInput = sanitizeUserInput(userInput, 1000);
     if (!userInput) {
       return {
@@ -67,7 +59,6 @@ class MultiTurnTravelAssistant {
         };
       }
 
-      // 检查是否是规划路线请求
       if (userInput.includes('我想规划路线') || userInput.includes('规划路线')) {
         console.log('检测到规划路线请求，直接调用RouteSkill');
         const instruction = {
@@ -93,7 +84,6 @@ class MultiTurnTravelAssistant {
         }
       }
 
-      // 检查是否是POI搜索请求（如"X有什么好玩的"）
       const directPoiPattern = /(.+?)(?:有什么好玩的|有什么地方玩|有什么景点|有什么好玩的地方)/;
       const directPoiMatch = userInput.match(directPoiPattern);
       if (directPoiMatch && directPoiMatch[1] && directPoiMatch[1].trim().length > 0) {
@@ -122,7 +112,6 @@ class MultiTurnTravelAssistant {
         }
       }
 
-      // 检查是否有未完成的路线信息，优先处理路线规划
       const pendingRouteInfo = session.getPendingRouteInfo();
       if (pendingRouteInfo) {
         console.log('检测到未完成的路线信息，优先处理路线规划');
@@ -149,18 +138,16 @@ class MultiTurnTravelAssistant {
         }
       }
 
-      // 1. 优先调用LLM
       const contextPrompt = await buildContextAwarePrompt(session, userInput);
       const llmResponse = await this.llm.callLLM(
         contextPrompt,
         userInput,
         true,
-        session // 传入 session 而不是 sessionId
+        session
       );
 
       let response;
 
-      // 尝试解析LLM返回的指令
       if (llmResponse) {
         try {
           let instruction = llmResponse;
@@ -168,7 +155,6 @@ class MultiTurnTravelAssistant {
             instruction = JSON.parse(instruction);
           }
 
-          // LLM 输出不可信：校验结构与技能白名单，防止伪造指令驱动下游 Skill
           if (!isValidInstruction(instruction)) {
             console.warn(
               '[安全] LLM 返回非法指令结构，已丢弃:',
@@ -178,12 +164,10 @@ class MultiTurnTravelAssistant {
           }
           instruction.params = sanitizeInstructionParams(instruction.params);
 
-          // 保存原始消息到 instruction 对象中，供 Skill 使用
           instruction._originalMessage = sanitizeUserInput(userInput);
 
           response = await this.executeInstruction(instruction, session);
 
-          // 成功则返回
           if (response && response.answer) {
             const elapsed = Date.now() - startTime;
             console.log(`[响应时间] LLM解析: ${elapsed}ms`);
@@ -196,11 +180,9 @@ class MultiTurnTravelAssistant {
           }
         } catch (error) {
           console.error('LLM指令解析失败:', error);
-          // 继续走fallback
         }
       }
 
-      // 2. LLM解析失败：若是路线需求，交给 RouteSkill（路线规划的唯一实现）
       if (this.isRouteRequest(userInput)) {
         const endpoints = this.parseOriginAndDestination(userInput);
         try {
@@ -213,7 +195,6 @@ class MultiTurnTravelAssistant {
             },
             session
           );
-          // 只有真正规划出结果才返回，追问（needs_user_input）继续走后面的兜底
           if (routeResult && routeResult.answer && !routeResult.needs_user_input) {
             const elapsed = Date.now() - startTime;
             console.log(`[响应时间] 路线兜底(RouteSkill): ${elapsed}ms`);
@@ -226,7 +207,6 @@ class MultiTurnTravelAssistant {
         }
       }
 
-      // 3. 尝试localReact
       const localResult = await this.llm.localReact(userInput, {
         geocode: async (address) => {
           return await this.mcp.geocode(address);
@@ -270,9 +250,7 @@ class MultiTurnTravelAssistant {
         },
       });
 
-      // 如果localReact能够处理，直接返回结果
       if (localResult.handled) {
-        // 更新地点信息
         if (localResult.lastMentionedLocation) {
           session.updateLastMentionedLocation(
             localResult.lastMentionedLocation
@@ -299,7 +277,6 @@ class MultiTurnTravelAssistant {
         };
       }
 
-      // 4. 最后用简化的fallback
       const quickFallbackResult = this.fallbackIntentParsing(
         userInput,
         session
@@ -330,11 +307,8 @@ class MultiTurnTravelAssistant {
     }
   }
 
-  /**
-   * 检查是否是重置命令
-   * @param {string} userInput - 用户输入的文本
-   * @returns {boolean} - 是否是重置命令
-   */
+  
+
   isResetCommand(userInput) {
     const resetPatterns = [
       '重新开始',
@@ -347,23 +321,16 @@ class MultiTurnTravelAssistant {
     return resetPatterns.some((pattern) => userInput.includes(pattern));
   }
 
-  /**
-   * 解析用户输入的意图（fallback机制）
-   * @param {string} userInput - 用户输入的文本
-   * @param {Object} session - 会话对象
-   * @returns {Object} - 解析结果，包含intent、origin、destination等字段
-   */
+  
+
   fallbackIntentParsing(userInput, session) {
     const text = String(userInput);
 
-    // 输入清理：移除"用户: "前缀
     let cleanedText = text.replace(/^用户:\s*/, '').trim();
 
-    // 只做指代词替换
     if (session) {
       const bestLocation = session.getBestLocationForContext(userInput);
       if (bestLocation) {
-        // 只做替换，不检测隐含意图
         cleanedText = cleanedText.replace(
           /(那里|这里|那儿|这儿|那边|这边)/g,
           bestLocation
@@ -371,15 +338,12 @@ class MultiTurnTravelAssistant {
       }
     }
 
-    // 规则1：POI 搜索匹配（只匹配有明确中心点的）
     const poiPattern =
       /(.+?)(?:附近|周边|周围|有什么|有|有没有|推荐|好玩)(?:的)?(?:地方|景点|餐厅|酒店)?(?:吗|呢|啊)?$/;
     const poiMatch = cleanedText.match(poiPattern);
     if (poiMatch && poiMatch[1] && poiMatch[1].trim().length > 0) {
-      // 只有当 center 有值时才返回
       let center = poiMatch[1].trim();
       let keywords = poiMatch[2]?.trim() || '好玩的';
-      // 关键词映射（吃→餐厅，玩→景点，住→酒店）
       return {
         intent: INTENT_TYPES.QUERY,
         poi_search: { enabled: true, keywords },
@@ -387,7 +351,6 @@ class MultiTurnTravelAssistant {
       };
     }
     
-    // 规则1.1：直接匹配"X有什么好玩的"格式
     const directPoiPattern = /(.+?)(?:有什么好玩的|有什么地方玩|有什么景点|有什么好玩的地方)/;
     const directPoiMatch = cleanedText.match(directPoiPattern);
     if (directPoiMatch && directPoiMatch[1] && directPoiMatch[1].trim().length > 0) {
@@ -398,9 +361,7 @@ class MultiTurnTravelAssistant {
         origin: center,
       };
     }
-    // 如果没有 center，继续往下走，不返回
 
-    // 规则2：路线规划匹配
     const routePattern = /从\s*(.+?)\s*(?:到|去)\s*(.+?)(?:怎么|如何|路线|走)?/;
     const routeMatch = cleanedText.match(routePattern);
     if (routeMatch && routeMatch[1] && routeMatch[2]) {
@@ -412,7 +373,6 @@ class MultiTurnTravelAssistant {
       };
     }
 
-    // 规则3：续程检测（"再去珠海"）
     const continuePattern = /(?:再去|然后去|接着去)\s*(.+)/;
     const continueMatch = cleanedText.match(continuePattern);
     if (continueMatch && continueMatch[1] && session) {
@@ -427,30 +387,26 @@ class MultiTurnTravelAssistant {
       }
     }
 
-    // 规则4：天气查询匹配
     const weatherPattern = /(.+?)(?:天气|气温|温度)(?:怎么样|如何)?/;
     const weatherMatch = cleanedText.match(weatherPattern);
 
-    // 纯"天气怎么样"的匹配（无地点）
     const genericWeatherPattern = /^(?:天气|气温|温度)(?:怎么样|如何)?[？?]?$/;
     const isGenericWeather = genericWeatherPattern.test(cleanedText);
 
-    // 也匹配 "那天气怎么样" 这类带指代词的
     const referenceWeatherPattern =
       /^(那|这|那里|这里)(?:的)?(?:天气|气温|温度)(?:怎么样|如何)?[？?]?$/;
     const isReferenceWeather = referenceWeatherPattern.test(cleanedText);
 
     if ((isGenericWeather || isReferenceWeather) && session) {
-      const lastSearched = session.getLastSearchedLocation(); // 和 POI 一样，优先
+      const lastSearched = session.getLastSearchedLocation();
       const lastOrigin = session.getLastOrigin();
       const lastDestination = session.getLastDestination();
 
-      // 和 POI 搜索保持一致的优先级
       if (lastSearched) {
         return {
           intent: INTENT_TYPES.QUERY,
           isWeather: true,
-          location: lastSearched, // 优先使用最后搜索的地点
+          location: lastSearched,
         };
       }
 
@@ -480,7 +436,6 @@ class MultiTurnTravelAssistant {
       };
     }
 
-    // 返回 UNKNOWN，让 LLM 处理
     return {
       intent: INTENT_TYPES.UNKNOWN,
       hasRouteIntent: false,
@@ -492,11 +447,8 @@ class MultiTurnTravelAssistant {
     };
   }
 
-  /**
-   * 根据意图结果更新会话信息
-   * @param {Object} session - 会话对象
-   * @param {Object} intentResult - 意图解析结果
-   */
+  
+
   updateSessionFromIntent(session, intentResult) {
     if (!intentResult) return;
 
@@ -525,7 +477,6 @@ class MultiTurnTravelAssistant {
       }
     }
 
-    // 更新最后提及的地点
     if (intentResult.origin) {
       session.updateLastMentionedLocation(intentResult.origin);
     } else if (intentResult.destination) {
@@ -533,11 +484,8 @@ class MultiTurnTravelAssistant {
     }
   }
 
-  /**
-   * 标准化意图结果
-   * @param {Object} llmResult - LLM返回的意图结果
-   * @returns {Object} - 标准化后的意图结果
-   */
+  
+
   normalizeIntentResult(llmResult) {
     const intent = llmResult.intent || INTENT_TYPES.UNKNOWN;
 
@@ -575,31 +523,20 @@ class MultiTurnTravelAssistant {
     };
   }
 
-  /**
-   * 处理POI搜索
-   * @param {Object} session - 会话对象
-   * @param {string} center - 搜索中心点
-   * @param {Object} poiSearch - POI搜索参数
-   * @returns {Promise<Object>} - 搜索结果
-   */
+  
+
   async handlePoiSearch(session, center, poiSearch) {
-    // 将参数转换为 POISkill 需要的格式
     const params = {
       center: center,
       keywords: poiSearch.keywords,
       radius: poiSearch.radius || 500,
       limit: 10,
     };
-    // 调用 POISkill
     return await this.skillManager.executeSkill('POISkill', params, session);
   }
 
-  /**
-   * 处理信息收集
-   * @param {Object} session - 会话对象
-   * @param {Object} intentResult - 意图解析结果
-   * @returns {Promise<Object>} - 处理结果
-   */
+  
+
   async handleInfoCollection(session, intentResult) {
     if (intentResult.origin) {
       session.setOrigin(intentResult.origin);
@@ -643,12 +580,8 @@ class MultiTurnTravelAssistant {
     };
   }
 
-  /**
-   * 处理用户确认
-   * @param {Object} session - 会话对象
-   * @param {Object} intentResult - 意图解析结果
-   * @returns {Promise<Object>} - 处理结果
-   */
+  
+
   async handleConfirmation(session, intentResult) {
     if (intentResult.intent === INTENT_TYPES.CONFIRM) {
       return {
@@ -656,7 +589,6 @@ class MultiTurnTravelAssistant {
         answer: '好的，正在为您规划最佳路线...',
       };
     } else if (intentResult.intent === INTENT_TYPES.NEGATE) {
-      // reset 是 async，必须 await 并落库，否则内存态与 Redis 不一致
       await session.reset();
       await this.sessionManager.saveSession(session);
       return {
@@ -671,12 +603,8 @@ class MultiTurnTravelAssistant {
     };
   }
 
-  /**
-   * 处理推荐
-   * @param {Object} session - 会话对象
-   * @param {Object} intentResult - 意图解析结果
-   * @returns {Promise<Object>} - 处理结果
-   */
+  
+
   async handleRecommendation(session, intentResult) {
     return {
       thought: '提供推荐',
@@ -684,12 +612,8 @@ class MultiTurnTravelAssistant {
     };
   }
 
-  /**
-   * 处理调整
-   * @param {Object} session - 会话对象
-   * @param {Object} intentResult - 意图解析结果
-   * @returns {Promise<Object>} - 处理结果
-   */
+  
+
   async handleAdjustment(session, intentResult) {
     if (intentResult.adjustment) {
       return {
@@ -704,12 +628,8 @@ class MultiTurnTravelAssistant {
     };
   }
 
-  /**
-   * 执行指令
-   * @param {Object} instruction - 指令对象
-   * @param {Object} session - 会话对象
-   * @returns {Promise<Object>} - 执行结果
-   */
+  
+
   async executeInstruction(instruction, session) {
     if (!instruction || typeof instruction !== 'object') {
       return {
@@ -730,7 +650,6 @@ class MultiTurnTravelAssistant {
       };
     }
 
-    // 保存原始消息到 params 中，供 RouteSkill 等使用
     const enrichedParams = {
       ...params,
       originalMessage:
@@ -739,18 +658,14 @@ class MultiTurnTravelAssistant {
 
     return await this.skillManager.executeSkill(selected_skill, enrichedParams, session);
   }
-  // 是否像路线请求（用于 LLM 解析失败后的兜底判断）：
-  // 必须同时解析出起点与终点，避免把"附近有地铁站吗"这类 POI 问题截断成路线追问
   isRouteRequest(message) {
     const { origin, destination } = this.parseOriginAndDestination(message);
     return Boolean(origin && destination);
   }
 
-  // 解析起点和终点
   parseOriginAndDestination(message) {
     const result = { origin: null, destination: null };
 
-    // 匹配 "从 X 到 Y" 格式
     const fromToMatch = message.match(/从\s*(.+?)\s*到\s*(.+)/);
     if (fromToMatch) {
       result.origin = fromToMatch[1].trim();
@@ -758,14 +673,12 @@ class MultiTurnTravelAssistant {
       return result;
     }
 
-    // 匹配 "从 X" 格式
     const fromMatch = message.match(/从\s*(.+)/);
     if (fromMatch) {
       result.origin = fromMatch[1].trim();
       return result;
     }
 
-    // 匹配 "到 Y" 或 "去 Y" 格式
     const toMatch = message.match(/(到|去)\s*(.+)/);
     if (toMatch) {
       result.destination = toMatch[2].trim();
@@ -775,7 +688,6 @@ class MultiTurnTravelAssistant {
     return result;
   }
 
-  // 处理POI搜索
   async handleSearchPoi(params, session) {
     const { center, keywords } = params;
 
@@ -794,7 +706,6 @@ class MultiTurnTravelAssistant {
     return await this.handlePoiSearch(session, center, poiSearch);
   }
 
-  // 生成自然语言路线建议（亲切、带表情）
   generateNaturalRouteAdvice(directions, origin, destination) {
     if (!directions || directions.length === 0) {
       return null;
@@ -803,7 +714,6 @@ class MultiTurnTravelAssistant {
     const recommended = directions[0];
     const suggestions = [];
 
-    // 根据推荐方案类型生成建议
     if (recommended.type === '驾车') {
       suggestions.push(`推荐您驾车出行🚗，大约${recommended.duration}可达`);
       if (recommended.cost && recommended.cost !== '¥0') {
@@ -815,14 +725,12 @@ class MultiTurnTravelAssistant {
         `全程约${recommended.duration}，费用仅${recommended.cost}`
       );
 
-      // 检查是否需要换乘
       if (recommended.transfers && recommended.transfers.length > 2) {
         suggestions.push(
           `需要换乘${recommended.transfers.length - 1}次，记得握好扶手哦🚌`
         );
       }
 
-      // 检查步行距离
       const walkingMatch = recommended.duration.match(/步行(\d+)米/);
       if (walkingMatch) {
         const walkingDistance = parseInt(walkingMatch[1]);
@@ -840,7 +748,6 @@ class MultiTurnTravelAssistant {
       suggestions.push(`大约${recommended.duration}，正好欣赏沿途风景🌸`);
     }
 
-    // 检查其他方案的时间差异
     if (directions.length > 1) {
       const secondOption = directions[1];
       const firstDurationMatch = recommended.duration.match(/(\d+)分钟/);
@@ -862,7 +769,6 @@ class MultiTurnTravelAssistant {
     return suggestions.join('，') + '。';
   }
 
-  // 显示更多结果
   async handleShowMore(session) {
     const lastPoiResults = session.getLastPoiResults();
     const currentIndex = session.getLastPoiIndex();
@@ -895,12 +801,9 @@ class MultiTurnTravelAssistant {
     };
   }
 
-  // 调整推荐参数
   async handleAdjust(params, session) {
     const { preference } = params;
 
-    // 这里可以根据preference调整搜索参数
-    // 例如：更便宜、更靠近、评分更高等
 
     return {
       thought: '调整偏好',
@@ -908,32 +811,24 @@ class MultiTurnTravelAssistant {
     };
   }
 
-  /**
-   * 处理fallback逻辑
-   * @param {Object} session - 会话对象
-   * @param {Object} intentResult - 意图解析结果
-   * @param {string} userInput - 用户输入的文本
-   * @returns {Promise<Object>} - 处理结果
-   */
+  
+
   async handleFallbackLogic(session, intentResult, userInput) {
     this.updateSessionFromIntent(session, intentResult);
 
     let response;
 
-    // 检查是否是天气查询请求
     if (intentResult.isWeather) {
       if (intentResult.multi_location && intentResult.locations) {
-        // 多地点天气查询 - 需要传递 time 参数
         return await this.skillManager.executeSkill('WeatherSkill',
           {
             locations: intentResult.locations,
             multi_location: true,
-            time: intentResult.time || null, // 添加 time 支持
+            time: intentResult.time || null,
           },
           session
         );
       } else if (intentResult.origin) {
-        // 单地点天气查询（从 origin 字段）
         return await this.skillManager.executeSkill('WeatherSkill',
           {
             location: intentResult.origin,
@@ -942,7 +837,6 @@ class MultiTurnTravelAssistant {
           session
         );
       } else if (intentResult.location) {
-        // 单地点天气查询（从 location 字段）
         return await this.skillManager.executeSkill('WeatherSkill',
           {
             location: intentResult.location,
@@ -953,10 +847,8 @@ class MultiTurnTravelAssistant {
       }
     }
 
-    // 检查是否是POI搜索请求
     const poiSearch = intentResult.poi_search || session.poiSearch;
     if (poiSearch && poiSearch.enabled) {
-      // 检查是否有搜索中心点
       if (intentResult.origin || session.collectedInfo.origin) {
         const center = intentResult.origin || session.collectedInfo.origin;
         response = await this.handlePoiSearch(session, center, poiSearch);
@@ -967,7 +859,6 @@ class MultiTurnTravelAssistant {
         };
       }
     } else if (intentResult.intent === INTENT_TYPES.UNKNOWN) {
-      // 清除poiSearch，确保返回友好提示
       session.poiSearch = null;
       return {
         thought: '无法识别用户意图',

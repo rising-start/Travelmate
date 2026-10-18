@@ -8,6 +8,5 @@ module.exports = {
   SILICON_FLOW_API_KEY: process.env.SILICON_FLOW_API_KEY,
   PORT: process.env.PORT || 3001,
   DEBUG: process.env.DEBUG === 'true',
-  // silent/error/warn/info/debug，缺省 info；DEBUG=true 时等价 debug
   LOG_LEVEL: process.env.LOG_LEVEL
 };

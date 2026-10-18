@@ -9,13 +9,11 @@ const {
   wrapUserInput,
 } = require('../utils/inputGuard');
 
-// 格式化历史记录用于LLM
 function formatHistoryForLLM(session) {
-  const history = session.dialogHistory.slice(-3); // 只保留最近3轮
+  const history = session.dialogHistory.slice(-3);
   let formatted = '';
 
   history.forEach((item, index) => {
-    // 历史文本同样来自用户输入，需清洗后再进提示词
     const assistantText = sanitizeUserInput(item.system, 200);
     formatted += `\n${index + 1}. 用户: ${sanitizeUserInput(item.user, 200)}`;
     formatted += `\n   系统: ${assistantText.substring(0, 100)}...`;
@@ -24,12 +22,9 @@ function formatHistoryForLLM(session) {
   return formatted;
 }
 
-// 获取关键地点摘要
 function getLocationSummary(session) {
   let summary = '';
 
-  // 【修改】优先级最高的放在最前面
-  // 这些地点部分来源于用户输入，进提示词前需要清洗
   if (session.getLastSearchedLocation()) {
     summary += `\n- 【优先级最高】用户最近搜索的地点: ${sanitizeUserInput(session.getLastSearchedLocation(), 100)}`;
   }
@@ -217,16 +212,12 @@ Few-shot示例：
 }
 
 function determineNextState(session, intentResult) {
-  // poi_search 可能为 undefined 或 null，给默认值避免后续判断出错
   const { intent, missingInfo, poi_search: poiSearch = {} } = intentResult;
 
-  // 检查是否是POI搜索请求
   if (poiSearch && poiSearch.enabled) {
-    // 如果有搜索中心点，直接进行POI搜索
     if (intentResult.origin || session.collectedInfo.origin) {
-      return DIALOG_STATES.RECOMMENDING; // 使用RECOMMENDING状态来处理POI搜索结果
+      return DIALOG_STATES.RECOMMENDING;
     } else {
-      // 缺少搜索中心点，需要收集
       return DIALOG_STATES.COLLECTING_ORIGIN;
     }
   }
@@ -236,7 +227,6 @@ function determineNextState(session, intentResult) {
   }
 
   if (intent === INTENT_TYPES.CONTINUE_JOURNEY) {
-    // 续程意图：如果信息完整直接推荐
     if (missingInfo.length === 0) {
       return DIALOG_STATES.RECOMMENDING;
     } else if (missingInfo.includes('origin')) {
@@ -247,7 +237,6 @@ function determineNextState(session, intentResult) {
   }
 
   if (intent === INTENT_TYPES.NEW_JOURNEY) {
-    // 全新行程：类似 PROVIDE_INFO
     if (missingInfo.length === 0) {
       return DIALOG_STATES.CONFIRMING;
     }
@@ -302,7 +291,6 @@ function determineNextState(session, intentResult) {
       return DIALOG_STATES.INIT;
     }
     if (intent === INTENT_TYPES.PROVIDE_INFO) {
-      // 用户提供新的路线信息，重新开始
       return DIALOG_STATES.INIT;
     }
   }

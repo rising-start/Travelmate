@@ -1,10 +1,8 @@
-/**
- * RouteSkill 测试
- */
+
+
 
 const RouteSkill = require('../../src/skills/RouteSkill');
 
-// execute 会调用下面全部 session 方法，缺一个就会被 catch 成'处理请求时出现问题'
 function createMockSession(overrides = {}) {
   return {
     getLastDestination: jest.fn().mockReturnValue(null),
@@ -28,10 +26,8 @@ describe('RouteSkill', () => {
   let mockWeather;
 
   beforeEach(() => {
-    // 重置所有 mocks
     jest.clearAllMocks();
     
-    // 创建 mock 依赖
     mockMcp = {
       geocode: jest.fn(),
       getDirections: jest.fn()
@@ -41,7 +37,6 @@ describe('RouteSkill', () => {
       getWeatherByCityName: jest.fn()
     };
     
-    // 创建 RouteSkill 实例
     routeSkill = new RouteSkill(mockMcp, mockWeather);
   });
 
@@ -273,11 +268,9 @@ describe('RouteSkill', () => {
       routeSkill.handlePlanRoute = jest.fn().mockResolvedValue({ thought: '路线规划完成', answer: '路线结果' });
       
       const result = await routeSkill.execute(params, session);
-      // pendingRouteInfo 里只有起点、没有目的地，此时应继续追问，而不是拿 undefined 去规划
       expect(result.needs_user_input).toBe(true);
       expect(result.answer).toBe('请问从上海去哪里？');
       expect(routeSkill.handlePlanRoute).not.toHaveBeenCalled();
-      // 追问时要把待补全的路线信息写回会话
       expect(session.setPendingRouteInfo).toHaveBeenCalledWith({ origin: '上海' });
     });
 

@@ -1,7 +1,5 @@
-/**
- * MultiTurnTravelAssistant 死代码清理测试
- * 类内重写的 Skill 与 handlePlanRoute 已删除，路线规划统一由 SkillManager 分发
- */
+
+
 
 const MultiTurnTravelAssistant = require('../../src/core/multiTurnTravelAssistant');
 
@@ -13,7 +11,6 @@ describe('MultiTurnTravelAssistant 死代码清理', () => {
   });
 
   afterAll(async () => {
-    // 释放清理定时器与 Redis 连接，避免 jest 进程挂住
     assistant.sessionManager.stopCleanupTimer();
     await assistant.sessionManager.close();
   });

@@ -1,6 +1,5 @@
-/**
- * RouteSkill - 处理路线规划相关功能
- */
+
+
 
 class RouteSkill {
   constructor(mcp, weather) {
@@ -8,22 +7,16 @@ class RouteSkill {
     this.weather = weather;
   }
 
-  /**
-   * 检查用户是否在纠正输入
-   * @param {string} message - 用户输入消息
-   * @returns {boolean} - 是否在纠正输入
-   */
+  
+
   isCorrectingInput(message) {
     if (!message) return false;
     const correctingPatterns = [/不是/i, /不对/i, /换/i, /改/i, /应该/i];
     return correctingPatterns.some((pattern) => pattern.test(message));
   }
 
-  /**
-   * 解析纠正后的输入
-   * @param {string} message - 用户输入消息
-   * @returns {Object} - 解析后的起点和终点
-   */
+  
+
   parseCorrectedInput(message) {
     const result = { origin: null, destination: null };
 
@@ -37,11 +30,8 @@ class RouteSkill {
     return result;
   }
 
-  /**
-   * 解析起点和终点
-   * @param {string} message - 用户输入消息
-   * @returns {Object} - 解析后的起点和终点
-   */
+  
+
   parseOriginAndDestination(message) {
     const result = { origin: null, destination: null };
 
@@ -67,23 +57,15 @@ class RouteSkill {
     return result;
   }
 
-  /**
-   * 格式化距离
-   * @param {string|number} distance - 距离
-   * @returns {string} - 格式化后的距离
-   */
+  
+
   formatDistance(distance) {
     const num = parseInt(distance) || 0;
     return num >= 1000 ? `${(num / 1000).toFixed(1)}公里` : `${num}米`;
   }
 
-  /**
-   * 生成自然语言路线建议
-   * @param {Array} directions - 路线方案
-   * @param {string} origin - 起点
-   * @param {string} destination - 终点
-   * @returns {string|null} - 自然语言建议
-   */
+  
+
   generateNaturalRouteAdvice(directions, origin, destination) {
     if (!directions || directions.length === 0) {
       return null;
@@ -147,12 +129,8 @@ class RouteSkill {
     return suggestions.join('，') + '。';
   }
 
-  /**
-   * 处理路线规划
-   * @param {Object} params - 参数
-   * @param {Object} session - 会话对象
-   * @returns {Promise<Object>} - 路线规划结果
-   */
+  
+
   async handlePlanRoute(params, session) {
     try {
       let { origin, destination } = params;
@@ -331,12 +309,8 @@ class RouteSkill {
     }
   }
 
-  /**
-   * 执行路线规划技能
-   * @param {Object} params - 参数
-   * @param {Object} session - 会话对象
-   * @returns {Promise<Object>} - 执行结果
-   */
+  
+
   async execute(params, session) {
     try {
       let { origin, destination, mode } = params;

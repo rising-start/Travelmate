@@ -3,17 +3,14 @@ const MultiTurnTravelAssistant = require('../core/multiTurnTravelAssistant');
 const readline = require('readline');
 const debug = require('../utils/debug');
 
-// 创建命令行接口
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
   prompt: '请输入您的问题: ',
 });
 
-// 创建多轮对话助手实例
 const multiTurnAssistant = new MultiTurnTravelAssistant();
 
-// 生成会话ID
 let sessionId = 'cli-session-' + Date.now();
 
 console.log('欢迎使用旅行助手！您可以询问路线规划、天气查询、周边搜索等问题。');
@@ -38,7 +35,6 @@ rl.on('line', async (line) => {
   }
 
   try {
-    // 使用多轮对话助手处理输入
     const result = await multiTurnAssistant.processUserInput(input, sessionId);
 
     if (result.answer) {
@@ -46,7 +42,6 @@ rl.on('line', async (line) => {
     }
 
     if (result.data) {
-      // 处理结构化数据
       if (result.data.type === 'route') {
         console.log('\n路线规划结果:');
         console.log(`从 ${result.data.origin} 到 ${result.data.destination}`);

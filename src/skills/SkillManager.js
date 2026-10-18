@@ -1,6 +1,5 @@
-/**
- * SkillManager - 技能管理器，统一管理所有技能
- */
+
+
 
 const RouteSkill = require('./RouteSkill');
 const WeatherSkill = require('./WeatherSkill');
@@ -17,9 +16,8 @@ class SkillManager {
     this.initializeSkills();
   }
 
-  /**
-   * 初始化技能
-   */
+  
+
   initializeSkills() {
     this.skills = {
       RouteSkill: new RouteSkill(this.mcp, this.weather),
@@ -31,13 +29,8 @@ class SkillManager {
     };
   }
 
-  /**
-   * 执行技能
-   * @param {string} skillName - 技能名称
-   * @param {Object} params - 参数
-   * @param {Object} session - 会话对象
-   * @returns {Promise<Object>} - 执行结果
-   */
+  
+
   async executeSkill(skillName, params, session) {
     try {
       const skill = this.skills[skillName];
@@ -57,10 +50,8 @@ class SkillManager {
     }
   }
 
-  /**
-   * 获取技能列表
-   * @returns {Array} - 技能列表
-   */
+  
+
   getSkillList() {
     return Object.keys(this.skills);
   }

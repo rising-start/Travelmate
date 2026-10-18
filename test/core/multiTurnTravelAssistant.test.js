@@ -1,10 +1,8 @@
-/**
- * MultiTurnTravelAssistant 测试
- */
+
+
 
 const MultiTurnTravelAssistant = require('../../src/core/multiTurnTravelAssistant');
 
-// Mock 依赖
 jest.mock('../../src/services/llm');
 jest.mock('../../src/services/mcp');
 jest.mock('../../src/services/weather');
@@ -15,9 +13,7 @@ describe('MultiTurnTravelAssistant', () => {
   let assistant;
 
   beforeEach(() => {
-    // 重置所有 mocks
     jest.clearAllMocks();
-    // 创建实例
     assistant = new MultiTurnTravelAssistant();
   });
 

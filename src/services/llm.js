@@ -15,14 +15,9 @@ const {
 } = require('../config/config');
 const { sanitizeUserInput } = require('../utils/inputGuard');
 
-// LLM 请求超时（毫秒），可通过环境变量调整
 const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS) || 15000;
-// 系统提示词长度上限：原值 2000 会把输出格式规则与 Few-shot 直接切掉，
-// 导致模型返回不可解析的内容
 const MAX_SYSTEM_PROMPT_LENGTH = 20000;
 
-// 缓存命中时返回深拷贝：调用方会就地改写返回对象（如补 _originalMessage），
-// 直接返回缓存对象会污染后续所有命中
 function cloneCachedValue(value) {
   if (value === null || typeof value !== 'object') {
     return value;
@@ -38,16 +33,13 @@ class LLMService {
   constructor(apiKey) {
     this.apiKey = apiKey || getLlmApiKey();
     this.baseUrl = LLM_BASE_URL;
-    this.cache = new Map(); // 请求缓存
-    this.cacheSize = 100; // 缓存大小限制
+    this.cache = new Map();
+    this.cacheSize = 100;
   }
 
-  // 调用LLM API
   async callLLM(systemPrompt, userInput, parseJson = true, session = null) {
-    // 生成上下文感知的缓存 key
     const crypto = require('crypto');
 
-    // 收集会话上下文信息
     let contextFingerprint = '';
     if (session) {
       const lastOrigin = session.getLastOrigin() || '';
@@ -57,43 +49,35 @@ class LLMService {
       contextFingerprint = `${lastOrigin}|${lastDestination}|${lastSearched}|${lastMentioned}`;
     }
 
-    // 用户输入在进入提示词/缓存 key 之前先清洗，避免 forged 输入击穿提示词结构
     const safeUserInput = sanitizeUserInput(userInput);
 
     const sessionId = session?.sessionId || 'default';
-    // 缓存 key 必须用原始输入：sanitizeUserInput 会截断到 500 字，
-    // 用清洗后的取值会让“前 500 字相同、尾部不同”的请求共用同一份缓存
     const cacheInput = `${String(userInput ?? '')}|${contextFingerprint}|${sessionId}`;
     const inputHash = crypto.createHash('md5').update(cacheInput).digest('hex');
-    // 缓存 key 必须包含提示词与模型指纹：否则不同技能/不同模型会串用同一份缓存
     const promptHash = crypto
       .createHash('md5')
       .update(`${systemPrompt}|${getLlmModel()}`)
       .digest('hex');
     const cacheKey = `${inputHash}_${promptHash}_${parseJson ? 'json' : 'text'}`;
 
-    // 检查缓存
     const cached = this.cache.get(cacheKey);
     if (cached) {
-      // 检查是否过期
       if (cached.expiresAt && cached.expiresAt > Date.now()) {
         console.log('LLM API请求命中缓存 (上下文相关)');
         return cloneCachedValue(cached.data);
       } else {
-        // 缓存已过期，删除
         this.cache.delete(cacheKey);
       }
     }
 
-    // 2. 优化提示词（限制长度，但保留完整规则段）
     const optimizedSystemPrompt = systemPrompt.substring(
       0,
       MAX_SYSTEM_PROMPT_LENGTH
     );
 
-    const maxRetries = 1; // 减少重试次数
-    const timeoutMs = LLM_TIMEOUT_MS; // 默认15秒超时
-    const retryDelayMs = 500; // 0.5秒重试间隔
+    const maxRetries = 1;
+    const timeoutMs = LLM_TIMEOUT_MS;
+    const retryDelayMs = 500;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       if (attempt > 0) {
@@ -103,11 +87,8 @@ class LLMService {
 
       try {
         const result = await new Promise((resolve, reject) => {
-          // 设置超时
           const timeout = setTimeout(() => {
             console.error('LLM API请求超时');
-            // 必须真正销毁底层 socket：否则连接会一直挂到响应结束（甚至永不关闭），
-            // 重试时又会新建连接，最终累积成 socket 句柄泄漏
             try {
               if (req && !req.destroyed) {
                 req.destroy();
@@ -141,7 +122,7 @@ class LLMService {
           };
 
           const req = https.request(options, (res) => {
-            clearTimeout(timeout); // 清除超时
+            clearTimeout(timeout);
             let responseData = '';
             res.on('data', (chunk) => {
               responseData += chunk;
@@ -205,7 +186,7 @@ class LLMService {
           });
 
           req.on('error', (error) => {
-            clearTimeout(timeout); // 清除超时
+            clearTimeout(timeout);
             console.error('LLM API请求失败:', error);
             resolve(null);
           });
@@ -215,18 +196,14 @@ class LLMService {
         });
 
         if (result !== null) {
-          // 3. 更新缓存
           if (this.cache.size >= this.cacheSize) {
-            // 移除最旧的缓存
             const firstKey = this.cache.keys().next().value;
             this.cache.delete(firstKey);
           }
 
-          // 判断是否是天气查询
           const isWeatherQuery = /天气|气温|温度/.test(safeUserInput);
-          const ttl = isWeatherQuery ? 60000 : 3600000; // 天气查询缓存1分钟，其他1小时
+          const ttl = isWeatherQuery ? 60000 : 3600000;
 
-          // 存储时带上时间戳
           this.cache.set(cacheKey, {
             data: result,
             expiresAt: Date.now() + ttl,
@@ -239,12 +216,10 @@ class LLMService {
       }
     }
 
-    // 所有重试都失败
     console.error('LLM API请求最终失败，返回null');
     return null;
   }
 
-  // 路线规划已统一由 src/skills/RouteSkill.js 负责，这里只保留兜底问答能力
   async reactLoop(userInput, tools) {
     try {
       const systemPrompt = getSystemPrompt();
@@ -252,7 +227,6 @@ class LLMService {
       const llmResult = await this.callLLM(systemPrompt, userInput);
 
       if (llmResult) {
-        // 处理TRIP_PLANNING意图
         if (llmResult.intent === 'TRIP_PLANNING') {
           debug.log('识别到复杂行程规划意图');
           debug.log('提取的信息:', {
@@ -262,14 +236,12 @@ class LLMService {
             poi_search: llmResult.poi_search,
           });
 
-          // 由于 TripPlanner 已删除，直接返回基本信息
           return {
             thought: '识别到复杂行程规划意图',
             answer: `您的行程规划需求已收到：从${llmResult.origin}到${llmResult.destination}，时间：${llmResult.time || '未指定'}。\n\n请提供更多具体信息，我将为您生成详细的行程方案。`,
           };
         }
 
-        // 处理普通路线规划意图
         if (
           llmResult.has_route_intent &&
           llmResult.origin &&
@@ -545,7 +517,6 @@ class LLMService {
                   answer += `   预计费用: ${scheme.cost}\n`;
                   answer += `   距离: ${formattedDistance}\n`;
 
-                  // 显示分段时间详情
                   if (scheme.walkingTime || scheme.ridingTime) {
                     const timeDetails = [];
                     if (scheme.walkingTime > 0) {
@@ -559,7 +530,6 @@ class LLMService {
                     }
                   }
 
-                  // 显示地铁线路详情
                   if (scheme.metroLines && scheme.metroLines.length > 0) {
                     answer += `   途经地铁: ${scheme.metroLines.join('、')}\n`;
                   }
@@ -568,7 +538,6 @@ class LLMService {
                     answer += `   详细换乘: ${scheme.transfers.join(' -> ')}\n`;
                   }
 
-                  // 显示推荐理由
                   if (scheme.isRecommended && scheme.recommendedReason) {
                     answer += `   推荐理由: ${scheme.recommendedReason}\n`;
                   }
@@ -602,7 +571,6 @@ class LLMService {
                   });
                 }
 
-                // 获取天气信息
                 let originWeather = null;
                 let destinationWeather = null;
                 let weatherAdvice = [];
@@ -623,7 +591,6 @@ class LLMService {
                   console.error('获取天气信息失败:', error);
                 }
 
-                // 构建带天气信息的返回结果
                 return {
                   thought: '已获取多种出行方案和信息足够生成回答',
                   answer: answer,
@@ -822,14 +789,10 @@ class LLMService {
     return address;
   }
 
-  // 本地ReAct实现（降级方案）
-  // 路线规划已统一由 src/skills/RouteSkill.js 负责，这里只保留兜底问答能力
   async localReact(userInput, tools) {
-    // 处理编码问题，确保中文文本能够被正确处理
     const input = String(userInput);
     debug.log('本地意图识别处理:', input);
 
-    // 清理输入，移除常见尾缀
     const cleanInput = input
       .replace(/\s*怎么走\s*$/, '')
       .replace(/\s*如何走\s*$/, '')
@@ -839,7 +802,6 @@ class LLMService {
       .replace(/\s*怎么\s*$/, '')
       .replace(/\s*如何\s*$/, '');
 
-    // 1. 路线规划意图 - 更健壮的正则表达式
     const routePatterns = [
       /从\s*(.+?)\s*到\s*(.+?)\s*$/,
       /(.+?)\s*到\s*(.+?)\s*$/,
@@ -873,7 +835,6 @@ class LLMService {
               if (originGeo && destGeo) {
                 let schemes = [];
 
-                // 调用get_directions工具获取所有方案
                 if (tools.get_directions) {
                   const directions = await tools.get_directions(
                     origin,
@@ -884,7 +845,6 @@ class LLMService {
                   }
                 }
 
-                // 添加骑行和步行方案
                 if (tools.route_bicycling) {
                   const bicyclingRoute = await tools.route_bicycling(
                     originGeo,
@@ -915,13 +875,11 @@ class LLMService {
                   }
                 }
 
-                // 构建回答
                 let answer = `从${origin}到${destination}的出行方案：\n`;
                 schemes.forEach((scheme, index) => {
                   answer += `${index + 1}. ${scheme.type}: ${scheme.duration}, ${scheme.cost}, ${scheme.distance}\n`;
                 });
 
-                // 获取天气信息
                 let originWeather = null;
                 let destinationWeather = null;
                 let weatherAdvice = [];
@@ -979,7 +937,6 @@ class LLMService {
       }
     }
 
-    // 2. POI搜索意图
     const poiPatterns = [
       /(.+)附近有什么(.*)/,
       /(.+)周边有什么(.*)/,
@@ -995,10 +952,8 @@ class LLMService {
         const center = match[1].trim();
         let keywords = match[2].trim();
 
-        // 清洗关键词
         keywords = keywords.replace(/[吗呢啊呀吧！？；：，。]/g, '').trim();
 
-        // 提取关键词
         if (!keywords) {
           const poiTypes = [
             '景点',
@@ -1022,7 +977,6 @@ class LLMService {
           }
         }
 
-        // 同义词映射
         const synonymMap = {
           美食: '餐厅',
           好吃的: '餐厅',
@@ -1081,7 +1035,6 @@ class LLMService {
       }
     }
 
-    // 3. 地点查询意图
     const locationQueryPatterns = [
       /(.+)在哪里/,
       /(.+)的位置/,
@@ -1123,7 +1076,6 @@ class LLMService {
       }
     }
 
-    // 4. 其他无法识别的情况
     return {
       handled: false,
       thought: '无法识别意图',

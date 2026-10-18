@@ -53,7 +53,6 @@ class VectorStore {
     }
   }
 
-  // 本地向量生成函数
   generateVector(text) {
     const charFreq = {};
     for (let char of text) {
@@ -67,7 +66,6 @@ class VectorStore {
       i++;
     }
 
-    // 归一化
     const norm = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
     return vector.map((val) => (norm > 0 ? val / norm : 0));
   }
